@@ -9,7 +9,15 @@
   <sub>Sin internet. Sin cuentas. Sin cables. Sin instalar drivers.</sub>
 </p>
 
-```
+<p align="center">
+  <a href="https://github.com/wizard646/remoto/blob/main/LICENSE"><img alt="Licencia" src="https://img.shields.io/badge/licencia-MIT-8b5cf6?style=flat-square&labelColor=1a1a1c"></a>
+  <a href="https://github.com/wizard646/remoto#privacidad"><img alt="Sin camara" src="https://img.shields.io/badge/sin%20c%C3%A1mara%20ni%20micr%C3%B3fono-34d399?style=flat-square&labelColor=1a1a1c"></a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078d6?style=flat-square&labelColor=1a1a1c">
+  <img alt="Android" src="https://img.shields.io/badge/Android-5.0%2B-3ddc84?style=flat-square&labelColor=1a1a1c">
+  <img alt="Respuesta" src="https://img.shields.io/badge/respuesta-20%20ms-8b5cf6?style=flat-square&labelColor=1a1a1c">
+  <img alt="Licencia" src="https://img.shields.io/badge/licencia-MIT-8b5cf6?style=flat-square&labelColor=1a1a1c">
+</p>
+
 ```
 ┌────────────────────────────┐        │  ┌──────────────────────────────────┐
 │ TATIANADELL                │        │  │ Remoto                           │
@@ -27,14 +35,40 @@
                                       │  │ +-----+ +-----+ +-----+          │
                                       │  └──────────────────────────────────┘
 ```
-└────────────────────────────┘        │  │ │Mus │ │Gui │ │Pap │             │
-                                      │  │ └────┘ └────┘ └────┘             │
-                                      │  └──────────────────────────────────┘
-```
 
 <p align="center">
   <img src="app/captura-app.png" width="270" alt="La app de Remoto en el celular">
 </p>
+
+---
+
+## Las dos apps
+
+<table>
+<tr>
+<td width="50%" align="center"><b>El celular</b><br><sub>React Native</sub></td>
+<td width="50%" align="center"><b>La computadora</b><br><sub>PowerShell + C#</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="app/captura-app.png" width="240" alt="App del celular"></td>
+<td align="center"><img src="docs/pc-ventana.png" width="330" alt="Ventana de Remoto en la PC"></td>
+</tr>
+</table>
+
+La ventana de la PC tiene tres botones: **Musica**, **Guiones** y **Papel**.
+
+<table>
+<tr>
+<td align="center"><img src="docs/pc-musica.png" width="230" alt="Musica y video"></td>
+<td align="center"><img src="docs/pc-guiones.png" width="240" alt="Guiones"></td>
+<td align="center"><img src="docs/pc-papel.png" width="220" alt="Portapapeles"></td>
+</tr>
+<tr>
+<td align="center" width="33%"><b>Musica y video</b><br><sub>suena sin abrir ventanas</sub></td>
+<td align="center" width="33%"><b>Guiones</b><br><sub>scripts guardados con nombre</sub></td>
+<td align="center" width="33%"><b>Portapapeles</b><br><sub>en las dos direcciones</sub></td>
+</tr>
+</table>
 
 ---
 
