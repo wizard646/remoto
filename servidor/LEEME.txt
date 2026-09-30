@@ -1,0 +1,50 @@
+Remoto
+======
+
+Programa para controlar esta computadora desde un celular Android,
+usando la red local de casa. Funciona solo dentro de tu propia red.
+
+Que hace
+--------
+- Muestra el estado de la computadora: memoria, disco, bateria, temperatura
+- Controla el mouse y el teclado
+- Abre programas, cambia el volumen, enciende o apaga el Bluetooth
+- Comparte el portapapeles entre el celular y la computadora
+- Manda y recibe archivos
+- Reproduce la musica y el video que estan en la computadora
+- Corre scripts de PowerShell guardados con nombre
+- Programa el apagado, el reinicio o la suspension con tiempo
+
+Archivos de esta carpeta
+------------------------
+  Remoto.exe          la ventana que ves en la PC
+  servidor.ps1        el que atiende al celular
+  monitor-cache.ps1   mantiene frescos los datos del sistema
+  cuentaatras.ps1     el temporizador de apagado
+  generar-icono.ps1   dibuja el logo
+  Remoto.ico          el logo en formato de Windows
+  clave.txt           la clave de acceso
+  registro.txt        el historial de lo que se hizo
+  guiones.json        los scripts guardados
+
+Por que el antivirus lo marca
+-----------------------------
+Remoto hace las mismas cosas que un virus de acceso remoto: manda teclas,
+mueve el mouse, lee el portapapeles, toma capturas de pantalla y escucha
+en un puerto de la red. Un antivirus no puede saber la diferencia entre un
+programa para oneself y un troyano: ve el comportamiento, no la intencion.
+
+La diferencia real:
+
+  - No se envia nada a internet. Todo pasa por la red local de tu casa.
+  - No hay camara, ni microfono, ni grabacion de pantalla.
+  - No se abre ningun puerto hacia afuera.
+  - El unico dato que viaja es una clave de 6 caracteres.
+  - Requiere la clave para entrar. Sin ella no responde a nada.
+
+El ejecutable va firmado con un certificado llamado "Remoto".
+Para quitar la excepcion del antivirus, agrega esta carpeta a las
+excepciones del antivirus: es la forma indicada de usar tu propio
+software cuando el antivirus lo confunde con malware.
+
+Licencia MIT.

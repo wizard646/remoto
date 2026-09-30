@@ -1,0 +1,49 @@
+# Dependencias
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Expo
+.expo/
+.expo-shared/
+*.jsbundle
+web-build/
+dist/
+
+# Android generado por prebuild
+app/android/
+app/ios/
+*.keystore
+!app/keystore-ejemplo.txt
+
+# Lo que se genera al instalar en la computadora
+servidor/servidor.ps1
+servidor/monitor-cache.ps1
+servidor/cuentaatras.ps1
+servidor/montar.ps1
+servidor/Remoto.exe
+servidor/Remoto.ico
+servidor/*.exe
+servidor/*.ico
+
+# Archivos personales: la clave NUNCA se sube
+servidor/clave.txt
+servidor/registro.txt
+servidor/cache.json
+servidor/guiones.json
+servidor/cuentaatras.json
+servidor/error.log
+
+# Windows
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# Sistema
+.DS_Store
+$RECYCLE.BIN/

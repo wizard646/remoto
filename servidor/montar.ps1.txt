@@ -1,0 +1,208 @@
+# ===================================================================
+#  MONTA REMOTO
+#
+#  Bitdefender borra los .ps1 y los .exe. Este script los vuelve a
+#  crear a partir de las fuentes .txt de la carpeta fuentes\, que si
+#  sobreviven. Se puede correr las veces que haga falta.
+#
+#    powershell -ExecutionPolicy RemoteSigned -File montar.cmd
+# ===================================================================
+$ErrorActionPreference = 'Stop'
+$RAIZ = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$FUENTES = Join-Path $RAIZ 'fuentes'
+$DESTINO = $RAIZ
+
+Write-Host ''
+Write-Host '  Remoto: montando la instalacion...' -ForegroundColor Cyan
+
+# --- copiar de .txt a su archivo real ---
+$pares = @{
+    'servidor.txt'      = 'servidor.ps1'
+    'monitor-cache.txt' = 'monitor-cache.ps1'
+    'cuentaatras.txt'   = 'cuentaatras.ps1'
+    'Remoto.cs.txt'     = 'Remoto.cs'
+    'RemotoVentanas.cs.txt' = 'RemotoVentanas.cs'
+    'index.html.txt'    = 'index.html'
+    'LEEME.txt.txt'     = 'LEEME.txt'
+}
+
+foreach ($k in $pares.Keys) {
+    $origen = Join-Path $FUENTES $k
+    # OJO: el destino se llama $a porque en PowerShell los nombres de
+    # variable no distinguen mayusculas. si se llamara $destino, pisaria
+    # a $DESTINO y las rutas siguientes saldrian todas mal
+    $a = Join-Path $DESTINO $pares[$k]
+    if (-not (Test-Path $origen)) {
+        Write-Host ("  falta " + $k) -ForegroundColor Red
+        continue
+    }
+    try {
+        Copy-Item $origen $a -Force -ErrorAction Stop
+        # el .ps1 necesita marca de orden de bytes para que Windows lo reconozca
+        if ($pares[$k].EndsWith('.ps1')) {
+            $t = [System.IO.File]::ReadAllText($a)
+            [System.IO.File]::WriteAllText($a, $t, (New-Object System.Text.UTF8Encoding $true))
+        }
+        Write-Host ("  ok  " + $pares[$k]) -ForegroundColor DarkGray
+    } catch {
+        Write-Host ("  BLOQUEADO " + $pares[$k] + "  ->  anadi la carpeta a las excepciones de Bitdefender") -ForegroundColor Yellow
+    }
+}
+
+# --- la clave ---
+$clave = Join-Path $DESTINO 'clave.txt'
+if (-not (Test-Path $clave)) {
+    $abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ23456789'
+    $nueva = -join (1..6 | ForEach-Object { $abc[(Get-Random -Maximum $abc.Length)] })
+    [System.IO.File]::WriteAllText($clave, $nueva, (New-Object System.Text.UTF8Encoding $false))
+    Write-Host ("  ok  clave.txt  (" + $nueva + ")") -ForegroundColor DarkGray
+}
+
+# --- el icono: se busca en esta maquina y, si no esta, se dibuja ---
+$ico = Join-Path $DESTINO 'Remoto.ico'
+if (-not (Test-Path $ico)) {
+    $candidatos = @(
+        (Join-Path $DESTINO 'icono.ico'),
+        (Join-Path $FUENTES 'icono.ico'),
+        (Join-Path $FUENTES 'icono.png')
+    )
+    foreach ($cand in $candidatos) {
+        if (Test-Path $cand) {
+            try { Copy-Item $cand $ico -Force -ErrorAction Stop; Write-Host '  ok  Remoto.ico' -ForegroundColor DarkGray; break }
+            catch { }
+        }
+    }
+}
+
+# --- el logo para recompilar ---
+$logo = Join-Path $FUENTES 'icono.png'
+if (-not (Test-Path $logo)) {
+    # en una maquina nueva el logo puede venir como app\icono.png al lado
+    foreach ($cand in @((Join-Path $DESTINO 'icono.png'),
+                        (Join-Path (Split-Path $FUENTES -Parent) 'app\icono.png'))) {
+        if (Test-Path $cand) {
+            Copy-Item $cand $logo -Force
+            Write-Host '  ok  fuentes\icono.png' -ForegroundColor DarkGray
+            break
+        }
+    }
+}
+
+# --- compilar y firmar ---
+$exe = Join-Path $DESTINO 'Remoto.exe'
+$remotoCs = Join-Path $DESTINO 'Remoto.cs'
+$ventanas  = Join-Path $DESTINO 'RemotoVentanas.cs'
+if ((Test-Path $remotoCs) -and (Test-Path $ventanas) -and (Test-Path $ico)) {
+    $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (Test-Path $csc) {
+        Write-Host '  compilando Remoto.exe...'
+        $tmp = Join-Path $env:TEMP 'Remoto-firma.exe'
+        $cmd = '"{0}" /nologo /target:winexe /platform:anycpu /optimize+ /win32icon:"{1}" /out:"{2}" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /resource:"{3}",logo-remoto.png /resource:"{1}",Remoto.ico "{4}" "{5}"' -f $csc, $ico, $tmp, $logo, $remotoCs, $ventanas
+        $salida = & cmd.exe /c $cmd 2>&1
+        if (Test-Path $tmp) {
+            try {
+                # en una maquina nueva no hay certificado: se crea uno
+                $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq 'CN=Remoto, O=Remoto' } | Select-Object -First 1
+                if (-not $cert) {
+                    Write-Host '  creando el certificado de Remoto...'
+                    $llave = New-Object System.Security.Cryptography.RSAKeySet 2048
+                    $c2 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
+                            'Remoto', 'Remoto', 'CN=Remoto, O=Remoto',
+                            $llave, ([datetime]::Now.AddYears(10)),
+                            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+                    $c2.CertificateExtensions.Add(
+                        (New-Object System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension($false,$false,0,$true)))
+                    $c2.CertificateExtensions.Add(
+                        (New-Object System.Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+                            [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $true)))
+                    $c2.CertificateExtensions.Add(
+                        (New-Object System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+                            @('1.3.6.1.5.5.7.3.3'), $false)))
+                    $cert2 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
+                        $c2.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert),
+                        '', [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+                    $cert = [System.Security.Cryptography.X509Certificates.X509Store]::new('My','CurrentUser').Add($cert2)
+                    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq 'CN=Remoto, O=Remoto' } | Select-Object -First 1
+                }
+                if ($cert) { [void](Set-AuthenticodeSignature -FilePath $tmp -Certificate $cert -HashAlgorithm SHA256) }
+                Copy-Item $tmp $exe -Force
+                $estado = (Get-AuthenticodeSignature $exe).Status
+                Write-Host ("  ok  Remoto.exe  (" + [math]::Round((Get-Item $exe).Length/1KB,0) + " KB, firma: " + $estado + ")") -ForegroundColor DarkGray
+            } catch {
+                Write-Host ("  Remoto.exe compilado pero el antivirus no lo deja copiar. firma: " + $_.Exception.Message) -ForegroundColor Yellow
+            }
+            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Host '  Remoto.exe no compilo:' -ForegroundColor Red
+            $salida | Select-Object -First 5 | ForEach-Object { Write-Host ('    ' + $_) -ForegroundColor Red }
+        }
+    }
+}
+
+# --- la ip, para escribirla en el celular ---
+# hay que tomar la de la ruta por defecto. si se busca "la primera
+# 192.168.*" sale el 192.168.56.1 de los adaptadores virtuales de
+# VMware o Hyper-V, que no sirve
+$ip = ''
+try {
+    $ruta = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+            Sort-Object RouteMetric | Select-Object -First 1
+    if ($ruta) {
+        $a = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias $ruta.InterfaceAlias -ErrorAction SilentlyContinue |
+             Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+             Select-Object -First 1
+        if ($a) { $ip = $a.IPAddress }
+    }
+} catch { }
+
+# --- abrir el puerto en el firewall ---
+# en una computadora nueva el firewall de Windows bloquea el puerto 8080
+# y el celular no llega. hace falta permiso de administrador.
+$yaAbierto = $false
+try {
+    $yaAbierto = @(Get-NetFirewallRule -DisplayName 'Remoto' -ErrorAction SilentlyContinue).Count -gt 0
+} catch { }
+
+if (-not $yaAbierto) {
+    $regla = 'New-NetFirewallRule -DisplayName "Remoto" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow -Profile Private,Domain'
+    $soyAdmin = $false
+    try {
+        $soyAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { }
+    if ($soyAdmin) {
+        try {
+            Invoke-Expression $regla
+            Write-Host '  ok  firewall: puerto 8080 permitido' -ForegroundColor DarkGray
+        } catch {
+            Write-Host '  el firewall no se pudo configurar' -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host '  pidiendo permiso para abrir el puerto 8080...' -ForegroundColor DarkGray
+        try {
+            Start-Process powershell -ArgumentList '-NoProfile', '-Command', $regla -Verb RunAs -Wait -WindowStyle Hidden
+            Write-Host '  ok  firewall: puerto 8080 permitido' -ForegroundColor DarkGray
+        } catch {
+            Write-Host '  sin permiso, el celular puede no llegar. corre esto como administrador:' -ForegroundColor Yellow
+            Write-Host ('    ' + $regla) -ForegroundColor Yellow
+        }
+    }
+}
+
+# --- que nada quede a medias ---
+$faltan = @()
+foreach ($n in @('servidor.ps1','monitor-cache.ps1','cuentaatras.ps1','clave.txt','index.html','Remoto.exe')) {
+    if (-not (Test-Path (Join-Path $DESTINO $n))) { $faltan += $n }
+}
+
+Write-Host ''
+if ($faltan.Count -eq 0) {
+    Write-Host '  Remoto listo.' -ForegroundColor Green
+    if ($ip) { Write-Host ("  En el celular: http://" + $ip + ":8080") -ForegroundColor Green }
+    Write-Host '  Clave: A7K2M9  (esta en clave.txt, se puede cambiar)' -ForegroundColor DarkGray
+    Write-Host '  Abre Remoto.exe' -ForegroundColor Green
+} else {
+    Write-Host ('  Falta: ' + ($faltan -join ', ')) -ForegroundColor Yellow
+    Write-Host '  Si falta servidor.ps1 o monitor-cache.ps1, anadi esta carpeta a las' -ForegroundColor Yellow
+    Write-Host '  excepciones de Bitdefender y corre montar.cmd otra vez.' -ForegroundColor Yellow
+}
+Write-Host ''

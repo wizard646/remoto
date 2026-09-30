@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>Mi PC</title>
+<style>
+  :root{--bg:#0f172a;--card:#1e293b;--card2:#273449;--txt:#f1f5f9;--muted:#94a3b8;--line:#334155;--accent:#60a5fa;--red:#f87171;--green:#4ade80;--amber:#fbbf24}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt);padding:16px;padding-bottom:70px;max-width:600px;margin:0 auto}
+  h1{font-size:22px;margin-bottom:2px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px;margin-bottom:12px}
+  .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:9px;font-weight:600}
+  input[type=text],input[type=number],select,textarea{
+    background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    padding:11px;border-radius:9px;font-size:15px;width:100%;font-family:inherit}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  textarea{resize:vertical;min-height:88px;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.5}
+  button{padding:12px 15px;border-radius:9px;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;width:100%;background:var(--accent);color:#0f172a}
+  button:active{transform:scale(.98)}
+  button:disabled{opacity:.5}
+  .sec{background:var(--card2);color:var(--txt);border:1px solid var(--line)}
+  .peligro{background:transparent;color:var(--red);border:1px solid var(--red)}
+  .ok{background:transparent;color:var(--green);border:1px solid var(--green)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .stat{background:var(--card2);border-radius:10px;padding:11px}
+  .stat-v{font-size:17px;font-weight:700;margin-top:3px;word-break:break-all}
+  .stat-u{font-size:10px;color:var(--muted);font-weight:400;display:block;margin-top:1px}
+  .tabs{display:flex;gap:7px;margin-bottom:14px}
+  .tab{flex:1;padding:11px;border-radius:10px;background:var(--card);border:1px solid var(--line);color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;text-align:center}
+  .tab.on{background:var(--accent);color:#0f172a;border-color:var(--accent)}
+  .subtabs{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto}
+  .st{flex:1;min-width:76px;padding:8px;border-radius:8px;background:var(--card2);border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;text-align:center}
+  .st.on{background:var(--accent);color:#0f172a;border-color:var(--accent)}
+  .oculto{display:none}
+  .salida{background:#020617;border:1px solid var(--line);border-radius:9px;padding:11px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;max-height:340px;overflow-y:auto;margin-top:9px}
+  .salida:empty{display:none}
+  .cmd{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+  .chip{background:var(--card2);border:1px solid var(--line);color:var(--muted);padding:7px 10px;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit}
+  .chip:active{border-color:var(--accent);color:var(--accent)}
+  .file{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .file:last-child{border-bottom:none}
+  .ico{width:34px;height:34px;border-radius:8px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+  .info{flex:1;min-width:0}
+  .nom{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{font-size:10px;color:var(--muted);margin-top:2px}
+  .acc{display:flex;gap:5px;flex-shrink:0}
+  .mini{padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--card2);color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;text-decoration:none}
+  .mini.borrar{color:var(--red);border-color:var(--red)}
+  .vacio{color:var(--muted);text-align:center;padding:22px;font-size:13px}
+  .drop{border:2px dashed var(--line);border-radius:11px;padding:28px 16px;text-align:center;cursor:pointer}
+  .drop:active{border-color:var(--accent);background:var(--card2)}
+  .drop-ico{font-size:34px;margin-bottom:8px}
+  .drop-txt{font-size:14px;font-weight:600;margin-bottom:3px}
+  .drop-sub{font-size:11px;color:var(--muted)}
+  .prog{height:6px;background:var(--card2);border-radius:4px;overflow:hidden;margin-top:12px;display:none}
+  .prog-f{height:100%;background:var(--green);width:0;transition:width .2s}
+  .estado{font-size:12px;margin-top:9px;color:var(--muted);text-align:center}
+  #captura{max-width:100%;border-radius:9px;border:1px solid var(--line);display:none}
+  .nota{font-size:11px;color:var(--muted);line-height:1.65}
+  .barra{height:6px;background:var(--card2);border-radius:4px;overflow:hidden;margin:5px 0}
+  .barra-f{height:100%;background:var(--accent);border-radius:4px}
+  .live{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--green);margin-bottom:10px}
+  .punto{width:6px;height:6px;border-radius:50%;background:var(--green)}
+</style>
+</head>
+<body>
+
+<h1>Mi PC</h1>
+<div class="sub">Control desde tu celular</div>
+
+<div class="card" id="login">
+  <div class="label">Clave de acceso</div>
+  <input type="text" id="clave" placeholder="6 caracteres" autocapitalize="characters" autocomplete="off">
+  <div style="height:10px"></div>
+  <button onclick="entrar()">Conectar</button>
+  <div class="estado" id="loginMsg"></div>
+</div>
+
+<div id="app" class="oculto">
+  <div class="live"><span class="punto"></span><span id="estadoLive">Conectado</span></div>
+
+  <div class="tabs">
+    <div class="tab on" id="tabA" onclick="ver('control')">Control</div>
+    <div class="tab" id="tabB" onclick="ver('archivos')">Archivos</div>
+  </div>
+
+  <!-- ============ CONTROL ============ -->
+  <div id="panel-control">
+    <div class="card">
+      <div class="label">Estado del equipo</div>
+      <div class="grid" id="infoPc"></div>
+      <div style="margin-top:11px">
+        <div style="display:flex;justify-content:space-between;font-size:12px"><span>Memoria RAM</span><span id="ramTxt"></span></div>
+        <div class="barra"><div class="barra-f" id="ramBar"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px"><span>Disco C:</span><span id="discoTxt"></span></div>
+        <div class="barra"><div class="barra-f" id="discoBar"></div></div>
+      </div>
+      <div style="height:11px"></div>
+      <button class="sec" onclick="sistema()">Actualizar</button>
+    </div>
+
+    <div class="card">
+      <div class="label">Acciones rápidas</div>
+      <div class="grid3">
+        <button class="sec" onclick="app('explorer')">Carpetas</button>
+        <button class="sec" onclick="app('calc')">Calculadora</button>
+        <button class="sec" onclick="app('notepad')">Bloc notas</button>
+        <button class="sec" onclick="app('browser')">Navegador</button>
+        <button class="sec" onclick="captura()">Captura</button>
+        <button class="sec" onclick="bloquear()">Bloquear</button>
+      </div>
+      <div style="height:9px"></div>
+      <div class="grid">
+        <button class="peligro" onclick="energia('reiniciar')">Reiniciar PC</button>
+        <button class="peligro" onclick="energia('apagar')">Apagar PC</button>
+      </div>
+    </div>
+
+    <div class="card oculto" id="cardCaptura">
+      <div class="label">Captura de pantalla</div>
+      <img id="captura" alt="Captura">
+      <div style="height:9px"></div>
+      <button class="sec" onclick="captura()">Tomar otra</button>
+    </div>
+
+    <div class="card">
+      <div class="label">Consola de comandos</div>
+      <div class="cmd">
+        <span class="chip" onclick="cmd('Get-Process | Sort-Object CPU -Descending | Select-Object -First 8 Name,CPU')">Procesos pesados</span>
+        <span class="chip" onclick="cmd('Get-ChildItem C:\\Users\\asley\\Descargas | Select-Object -First 8 Name')">Descargas</span>
+        <span class="chip" onclick="cmd('Get-Date')">Fecha y hora</span>
+        <span class="chip" onclick="cmd('Get-NetAdapter | Where-Object Status -eq \"Up\" | Select-Object Name,Status')">Conexiones</span>
+      </div>
+      <textarea id="orden" placeholder="Escribe un comando de PowerShell..."></textarea>
+      <div style="height:9px"></div>
+      <button onclick="ejecutar()">Ejecutar</button>
+      <div class="salida" id="salida"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Actividad reciente</div>
+      <div id="registro"><div class="vacio">Sin registro</div></div>
+    </div>
+  </div>
+
+  <!-- ============ ARCHIVOS ============ -->
+  <div id="panel-archivos" class="oculto">
+    <div class="card">
+      <div class="drop" onclick="document.getElementById('archivos').click()">
+        <div class="drop-ico">Enviar a PC</div>
+        <div class="drop-txt">Toca para elegir archivos</div>
+        <div class="drop-sub">Fotos, videos, documentos</div>
+      </div>
+      <input type="file" id="archivos" multiple class="oculto" onchange="enviar(this.files)">
+      <div class="prog" id="prog"><div class="prog-f" id="progF"></div></div>
+      <div class="estado" id="estado"></div>
+    </div>
+    <div class="card">
+      <div class="label">Archivos en la PC</div>
+      <div id="lista"><div class="vacio">Cargando...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let TOKEN = localStorage.getItem('token_pc') || '';
+const $ = id => document.getElementById(id);
+
+async function api(ruta, opts = {}) {
+  const r = await fetch(ruta, { ...opts, headers: { 'x-token': TOKEN, ...(opts.headers||{}) } });
+  if (r.status === 401) { localStorage.removeItem('token_pc'); location.reload(); }
+  return r;
+}
+
+async function entrar() {
+  const v = $('clave').value.trim().toUpperCase();
+  if (v.length !== 6) { $('loginMsg').textContent = 'La clave tiene 6 caracteres.'; return; }
+  TOKEN = v;
+  const r = await fetch('/api/archivos', { headers: { 'x-token': TOKEN } });
+  if (r.status === 401) { $('loginMsg').textContent = 'Clave incorrecta. Mira la ventana de la PC.'; return; }
+  localStorage.setItem('token_pc', TOKEN);
+  $('login').classList.add('oculto');
+  $('app').classList.remove('oculto');
+  sistema(); registro();
+  setInterval(() => { if (!$('app').classList.contains('oculto')) sistema(); }, 20000);
+}
+
+function ver(p) {
+  $('panel-control').classList.toggle('oculto', p !== 'control');
+  $('panel-archivos').classList.toggle('oculto', p !== 'archivos');
+  $('tabA').classList.toggle('on', p === 'control');
+  $('tabB').classList.toggle('on', p === 'archivos');
+  if (p === 'archivos') cargar();
+}
+
+function gb(n) { if (n === undefined) return '?'; return (n/1073741824).toFixed(1) + ' GB'; }
+
+async function sistema() {
+  try {
+    const d = await (await api('/api/sistema')).json();
+    $('infoPc').innerHTML = `
+      <div class="stat"><div class="label">Equipo</div><div class="stat-v">${d.pc}</div></div>
+      <div class="stat"><div class="label">Usuario</div><div class="stat-v">${d.usuario}</div></div>
+      <div class="stat"><div class="label">Encendido</div><div class="stat-v">${d.activo}</div></div>
+      <div class="stat"><div class="label">Procesos</div><div class="stat-v">${d.procesos}</div></div>`;
+    const rp = Math.round(d.ramUsada / d.ramTotal * 100);
+    $('ramTxt').textContent = gb(d.ramUsada) + ' / ' + gb(d.ramTotal) + ' (' + rp + '%)';
+    $('ramBar').style.width = rp + '%';
+    $('ramBar').style.background = rp > 85 ? 'var(--red)' : rp > 65 ? 'var(--amber)' : 'var(--green)';
+    const dp = Math.round(d.discoUsado / d.discoTotal * 100);
+    $('discoTxt').textContent = gb(d.discoUsado) + ' / ' + gb(d.discoTotal) + ' (' + dp + '%)';
+    $('discoBar').style.width = dp + '%';
+    $('discoBar').style.background = dp > 90 ? 'var(--red)' : dp > 75 ? 'var(--amber)' : 'var(--green)';
+  } catch (e) { $('estadoLive').textContent = 'Sin conexion con la PC'; }
+}
+
+function cmd(t) { $('orden').value = t; $('orden').focus(); }
+
+async function ejecutar() {
+  const o = $('orden').value.trim();
+  if (!o) return;
+  $('salida').textContent = 'Ejecutando...';
+  try {
+    const r = await api('/api/ejecutar', { method: 'POST', body: o });
+    const d = await r.json();
+    $('salida').textContent = d.salida || d.error || '(sin salida)';
+    $('orden').value = '';
+  } catch (e) { $('salida').textContent = 'Error de conexion'; }
+}
+
+async function app(nombre) {
+  const r = await api('/api/programa', { method: 'POST', body: nombre });
+  const d = await r.json();
+  if (d.error) alert(d.error);
+}
+
+async function captura() {
+  try {
+    const r = await api('/api/captura');
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    $('captura').src = url;
+    $('captura').style.display = 'block';
+    $('cardCaptura').classList.remove('oculto');
+  } catch (e) {}
+}
+
+async function bloquear() {
+  if (!confirm('Bloquear la pantalla de la PC?')) return;
+  await api('/api/bloquear', { method: 'POST' });
+}
+
+async function energia(accion) {
+  const t = accion === 'apagar' ? 'APAGAR' : 'REINICIAR';
+  if (!confirm('Vas a ' + t + ' la PC ahora. Continuar?')) return;
+  await api('/api/energia', { method: 'POST', body: accion });
+  $('salida').textContent = 'Orden enviada: ' + t;
+}
+
+async function registro() {
+  try {
+    const d = await (await api('/api/registro')).json();
+    $('registro').innerHTML = d.length ? d.map(l =>
+      `<div class="file"><div class="ico">${l.tipo}</div><div class="info">
+        <div class="nom">${l.texto}</div><div class="meta">${l.hora}</div></div></div>`).join('')
+      : '<div class="vacio">Sin actividad registrada</div>';
+  } catch (e) {}
+}
+
+function tam(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(0) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+
+async function cargar() {
+  try {
+    const d = await (await api('/api/archivos')).json();
+    $('lista').innerHTML = d.length ? d.map(f => {
+      const e = f.nombre.split('.').pop().toLowerCase();
+      const ico = ['jpg','jpeg','png','gif','webp','heic'].includes(e) ? 'IMG'
+        : ['mp4','mov'].includes(e) ? 'VID' : e === 'pdf' ? 'PDF'
+        : ['mp3','wav','m4a'].includes(e) ? 'AUD' : ['zip','rar','7z'].includes(e) ? 'ZIP' : 'DOC';
+      const u = '/descargar?nombre=' + encodeURIComponent(f.nombre) + '&t=' + TOKEN;
+      return `<div class="file"><div class="ico">${ico}</div><div class="info">
+        <div class="nom">${f.nombre}</div><div class="meta">${tam(f.tamano)} · ${new Date(f.fecha).toLocaleString('es',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div></div>
+        <div class="acc"><a class="mini" href="${u}" download>Bajar</a>
+        <button class="mini borrar" onclick="borrar('${f.nombre.replace(/'/g,"\\'")}')">X</button></div></div>`;
+    }).join('') : '<div class="vacio">No hay archivos</div>';
+  } catch (e) { $('lista').innerHTML = '<div class="vacio">Sin conexion</div>'; }
+}
+
+function subirUno(file, i, total) {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/subir?nombre=' + encodeURIComponent(file.name));
+    x.setRequestHeader('x-token', TOKEN);
+    x.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const pct = ((i + e.loaded/e.total) / total) * 100;
+        $('progF').style.width = pct + '%';
+        $('estado').textContent = `Subiendo ${i+1} de ${total}... ${Math.round(pct)}%`;
+      }
+    };
+    x.onload = () => x.status === 200 ? res() : rej();
+    x.onerror = () => rej();
+    x.send(file);
+  });
+}
+
+async function enviar(files) {
+  if (!files || !files.length) return;
+  $('prog').style.display = 'block';
+  const l = [...files];
+  for (let i = 0; i < l.length; i++) { try { await subirUno(l[i], i, l.length); } catch (e) { $('estado').textContent = 'Fallo ' + l[i].name; return; } }
+  $('progF').style.width = '100%';
+  $('estado').textContent = l.length + ' archivo(s) enviados';
+  setTimeout(() => { $('prog').style.display = 'none'; $('progF').style.width = '0'; }, 1400);
+  $('archivos').value = '';
+  cargar();
+}
+
+async function borrar(n) {
+  if (!confirm('Borrar ' + n + '?')) return;
+  await api('/api/borrar?nombre=' + encodeURIComponent(n), { method: 'POST' });
+  cargar();
+}
+
+if (TOKEN) entrar();
+</script>
+</body>
+</html>

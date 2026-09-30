@@ -1,0 +1,58 @@
+# ===================================================================
+#  TEMPORIZADOR DE ENERGIA
+#  Lo arranca el servidor. Espera la hora pactada y apaga, reinicia
+#  o suspende la computadora. Vive aparte para que si el servidor se
+#  cierra, la orden igual se cumpla.
+# ===================================================================
+$ErrorActionPreference = 'SilentlyContinue'
+$RAIZ    = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$ARCHIVO = Join-Path $RAIZ 'cuentaatras.json'
+
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class Remoto {
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool InitiateSystemShutdownEx(
+        string machine, string reason, uint timeout,
+        bool force, bool reboot, uint reasonCode);
+}
+'@
+
+while ($true) {
+    Start-Sleep -Seconds 2
+    if (-not (Test-Path $ARCHIVO)) { continue }
+
+    try {
+        $t = [System.IO.File]::ReadAllText($ARCHIVO)
+        if (-not $t) { continue }
+        $d = $t | ConvertFrom-Json
+    } catch { continue }
+    if (-not $d -or -not $d.vence) { continue }
+
+    $faltan = ([datetime]$d.vence) - (Get-Date)
+    if ($faltan.TotalSeconds -gt 0) { continue }
+
+    # ya tocaba: se borra el archivo para no repetir
+    Remove-Item $ARCHIVO -Force -ErrorAction SilentlyContinue
+    $tipo = $d.tipo
+
+    try {
+        if ($tipo -eq 'reiniciar') {
+            [void][Remoto]::InitiateSystemShutdownEx('', 'Remoto: reinicio programado', 0, $true, $true, 0)
+        }
+        elseif ($tipo -eq 'dormir') {
+            Start-Process rundll32.exe -ArgumentList 'powrprof.dll,SetSuspendState 0,1,0'
+        }
+        else {
+            [void][Remoto]::InitiateSystemShutdownEx('', 'Remoto: apagado programado', 0, $true, $false, 0)
+        }
+        break
+    } catch {
+        # si algo falla, se intenta la via simple
+        if ($tipo -eq 'reiniciar') { Restart-Computer -Force }
+        elseif ($tipo -eq 'dormir') { Start-Process rundll32.exe -ArgumentList 'powrprof.dll,SetSuspendState 0,1,0' }
+        else { Stop-Computer -Force }
+        break
+    }
+}

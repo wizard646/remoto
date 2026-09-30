@@ -1,0 +1,1286 @@
+$ErrorActionPreference = 'SilentlyContinue'
+$RAIZ    = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$PUERTO  = 8080
+$CARPETA = Join-Path $env:USERPROFILE 'Descargas\Desde-Celular'
+$LIMITE  = 500MB
+$ABECEDARIO = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ23456789'
+
+# --- la clave -------------------------------------------------------
+$ARCHIVOCLAVE = Join-Path $RAIZ 'clave.txt'
+$CLAVE = ''
+if (Test-Path $ARCHIVOCLAVE) { $CLAVE = ([System.IO.File]::ReadAllText($ARCHIVOCLAVE)).Trim() }
+if ([string]::IsNullOrWhiteSpace($CLAVE)) {
+  $CLAVE = -join (1..6 | ForEach-Object { $ABECEDARIO[(Get-Random -Maximum $ABECEDARIO.Length)] })
+  try { [System.IO.File]::WriteAllText($ARCHIVOCLAVE, $CLAVE) } catch {}
+}
+
+$REGISTRO = Join-Path $RAIZ 'registro.txt'
+$script:Cache = @{}
+$script:Clientes = @{}
+$script:Orden = New-Object System.Collections.ArrayList
+$script:Reproductor = $null
+$script:MISIPs = @('127.0.0.1')
+try {
+  [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) |
+    ForEach-Object { if ($_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) { $script:MISIPs += $_.ToString() } }
+} catch {}
+
+function Add-Registro([string]$tipo, [string]$texto) {
+  $linea = "[$(Get-Date -Format 'HH:mm:ss')] $tipo $texto"
+  Add-Content -Path $REGISTRO -Value $linea -Encoding UTF8
+  $todas = Get-Content $REGISTRO -Encoding UTF8 -ErrorAction SilentlyContinue
+  if ($todas -and $todas.Count -gt 60) { $todas[-60..-1] | Set-Content -Path $REGISTRO -Encoding UTF8 }
+}
+
+# --- cache ----------------------------------------------------------
+# evita recalcular lo que no cambia. el unico original de la app
+# tardaba 22 segundos en responder; con esto, milisegundos.
+function Get-Cacheado([string]$clave, [int]$segundos, [scriptblock]$calcular) {
+  $ahora = [DateTime]::UtcNow
+  if ($script:Cache.ContainsKey($clave)) {
+    $e = $script:Cache[$clave]
+    if (($ahora - $e.t).TotalSeconds -lt $segundos) { return $e.v }
+  }
+  $v = & $calcular
+  $script:Cache[$clave] = @{ t = $ahora; v = $v }
+  return $v
+}
+
+# ===================================================================
+#  ENTRADA: teclado y raton
+#  SendInput es la API que Windows soporta hoy. La vieja keybd_event
+#  hacia que las flechas y los modificadores no llegaran, y no permitia
+#  combinaciones como ctrl+c.
+# ===================================================================
+$script:CODIGO_CSHARP = @'
+using System;
+using System.Runtime.InteropServices;
+public class EntradaWin {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct INPUT { public uint type; public InputUnion U; }
+  [StructLayout(LayoutKind.Explicit)]
+  public struct InputUnion {
+    [FieldOffset(0)] public MOUSEINPUT mi;
+    [FieldOffset(0)] public KEYBDINPUT ki;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MOUSEINPUT { public int dx; public int dy; public uint dwData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out System.Drawing.Point p);
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern uint SendInput(uint n, INPUT[] p, int size);
+
+  const uint Teclado = 1, Raton = 0;
+  const uint Arriba = 0x0002, Extendida = 0x0001;
+  const uint Rueda = 0x0800, Suelta = 0x0004;
+
+  // las flechas, inicio, fin, supr y los modificadores derechos
+  // necesitan el bit de tecla extendida o Windows las descarta
+  static bool EsExtendida(int vk) {
+    return vk == 0x21 || vk == 0x22 || vk == 0x23 || vk == 0x24 || vk == 0x25
+        || vk == 0x26 || vk == 0x27 || vk == 0x28 || vk == 0x2D || vk == 0x2E
+        || vk == 0x90 || vk == 0x6D || vk == 0xA3 || vk == 0xA5;
+  }
+
+  public static void Tecla(int vk, bool suelta) {
+    var e = new INPUT();
+    e.type = Teclado;
+    e.U.ki.wVk = (ushort)vk;
+    e.U.ki.wScan = 0;
+    e.U.ki.dwFlags = (suelta ? Arriba : 0u) | (EsExtendida(vk) ? Extendida : 0u);
+    e.U.ki.time = 0;
+    e.U.ki.dwExtraInfo = IntPtr.Zero;
+    SendInput(1, new INPUT[] { e }, Marshal.SizeOf(typeof(INPUT)));
+  }
+
+  public static void Clic(int boton) {
+    var baja = new INPUT(); baja.type = Raton; baja.U.mi.dwFlags = (uint)boton;
+    var alta = new INPUT(); alta.type = Raton; alta.U.mi.dwFlags = (uint)boton | Suelta;
+    SendInput(2, new INPUT[] { baja, alta }, Marshal.SizeOf(typeof(INPUT)));
+  }
+
+  public static void RuedaGiro(int delta) {
+    var e = new INPUT(); e.type = Raton; e.type = Raton; e.U.mi.dwFlags = Rueda; e.U.mi.dwData = (uint)delta;
+    SendInput(1, new INPUT[] { e }, Marshal.SizeOf(typeof(INPUT)));
+  }
+}
+'@
+
+function Entrada-Cargada {
+    if ($script:entradaCargada) { return $true }
+    if ('EntradaWin' -as [type]) { $script:entradaCargada = $true; return $true }
+    try {
+        Add-Type -TypeDefinition $script:CODIGO_CSHARP -ReferencedAssemblies System.Drawing
+        $script:entradaCargada = $true
+        return $true
+    } catch {
+        Add-Registro 'ERROR' ("No se pudo cargar la entrada: " + $_.Exception.Message)
+        return $false
+    }
+}
+
+function Escribe($stream, [string]$t) {
+    $b = [System.Text.Encoding]::UTF8.GetBytes($t)
+    $stream.Write($b, 0, $b.Length)
+}
+
+function Estado([string]$motivo) {
+    if ($motivo -eq 'Bad Request') { return '400 Bad Request' }
+    if ($motivo -eq 'Unauthorized') { return '401 Unauthorized' }
+    if ($motivo -eq 'Not Found') { return '404 Not Found' }
+    if ($motivo -eq 'Internal Server Error') { return '500 Internal Server Error' }
+    return '200 OK'
+}
+
+function Responder($stream, $data, [int]$code = 200, [string]$motivo = 'OK') {
+    try {
+        $json = ConvertTo-Json -InputObject $data -Depth 8 -Compress
+        $b = [System.Text.Encoding]::UTF8.GetBytes($json)
+        Escribe $stream ("HTTP/1.1 " + (Estado $motivo) + "`r`n")
+        Escribe $stream "Content-Type: application/json; charset=utf-8`r`n"
+        Escribe $stream "Content-Length: $($b.Length)`r`n"
+        Escribe $stream "Access-Control-Allow-Origin: *`r`n"
+        Escribe $stream "Connection: close`r`n`r`n"
+        $stream.Write($b, 0, $b.Length)
+        $stream.Flush()
+    } catch { }
+}
+
+# --- leer la peticion ------------------------------------------------
+# los headers llegan como latin-1 desde la red. el celular manda su
+# nombre en utf-8, asi que hay que volver a decodificarlo.
+function Leer-Request($stream) {
+    $ms = New-Object System.IO.MemoryStream
+    $buf = New-Object byte[] 16384
+    $arr = $null
+    $headerEnd = -1
+    while ($true) {
+        $n = $stream.Read($buf, 0, $buf.Length)
+        if ($n -le 0) { $ms.Dispose(); return $null }
+        $arr = New-Object byte[] $n
+        [Array]::Copy($buf, 0, $arr, 0, $n)
+        $txt = [System.Text.Encoding]::GetEncoding(28591).GetString($arr)
+        $headerEnd = $txt.IndexOf("`r`n`r`n")
+        if ($headerEnd -ge 0) { break }
+        $ms.Write($arr, 0, $n)
+        if ($ms.Length -gt 1MB) { $ms.Dispose(); return $null }
+    }
+    $txt = [System.Text.Encoding]::GetEncoding(28591).GetString($arr)
+    $headTxt = $txt.Substring(0, $headerEnd)
+    $iniBody = $headerEnd + 4
+    $lineas = $headTxt -split "`r`n"
+    $partes = $lineas[0] -split ' '
+    $headers = @{}
+    for ($i = 1; $i -lt $lineas.Count; $i++) {
+        if ($lineas[$i] -match '^([^:]+):\s*(.*)$') { $headers[$matches[1].ToLower().Trim()] = $matches[2] }
+    }
+    $contentLength = 0
+    if ($headers.ContainsKey('content-length')) {
+        try { $contentLength = [int]$headers['content-length'] } catch { $contentLength = 0 }
+    }
+    if ($iniBody -lt $arr.Length) {
+        $resto = New-Object byte[] ($arr.Length - $iniBody)
+        [Array]::Copy($arr, $iniBody, $resto, 0, $arr.Length - $iniBody)
+        $ms.Write($resto, 0, $resto.Length)
+    }
+    while ($ms.Length -lt $contentLength) {
+        $n = $stream.Read($buf, 0, $buf.Length)
+        if ($n -le 0) { break }
+        $ms.Write($buf, 0, $n)
+    }
+    return [PSCustomObject]@{ Metodo = $partes[0]; Destino = $partes[1]; Headers = $headers; Body = $ms.ToArray() }
+}
+
+function Get-BodyTexto($req) {
+    if ($null -eq $req.Body) { return '' }
+    return [System.Text.Encoding]::UTF8.GetString($req.Body)
+}
+
+# convierte el cuerpo de un POST a objeto. si el texto no es json
+# valido devuelve nada, para que la ruta pueda contestar 400 en vez de
+# reventar con un error 500 que no dice nada
+function Get-CuerpoJson([string]$texto) {
+    if ([string]::IsNullOrWhiteSpace($texto)) { return $null }
+    try {
+        $o = $texto | ConvertFrom-Json
+        if ($null -eq $o) { return $null }
+        return $o
+    } catch { return $null }
+}
+
+function Parse-Query([string]$q) {
+    $res = @{}
+    if (-not $q) { return $res }
+    foreach ($par in ($q -split '&')) {
+        if (-not $par) { continue }
+        $kv = $par -split '=', 2
+        $k = [System.Uri]::UnescapeDataString($kv[0])
+        $v = if ($kv.Count -gt 1) { [System.Uri]::UnescapeDataString($kv[1]) } else { '' }
+        $res[$k] = $v
+    }
+    return $res
+}
+
+# ===================================================================
+#  QUIEN SE CONECTA
+# ===================================================================
+function Adivinar-Nombre([string]$ip) {
+    try {
+        $v = Get-NetNeighbor -AddressFamily IPv4 -IPAddress $ip -ErrorAction SilentlyContinue |
+             Where-Object { $_.State -ne 'Unreachable' -and $_.Name -and $_.Name -notmatch '^\W' } |
+             Select-Object -First 1
+        if ($v -and $v.Name) { return $v.Name }
+    } catch { }
+    try {
+        $h = [System.Net.Dns]::GetHostEntry($ip).HostName
+        if ($h -and $h -ne $ip) { return $h }
+    } catch { }
+    return 'Celular'
+}
+
+function Registrar-Cliente([string]$ip, [string]$nombre) {
+    if ([string]::IsNullOrWhiteSpace($ip)) { return }
+    if ($script:MISIPs -contains $ip) { return }
+
+    if (-not [string]::IsNullOrWhiteSpace($nombre)) {
+        try {
+            $nombre = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::GetEncoding(28591).GetBytes($nombre))
+        } catch { }
+    }
+
+    $nuevo = $false
+    if (-not $script:Clientes.ContainsKey($ip)) {
+        $script:Clientes[$ip] = @{ ip = $ip; nombre = ''; primera = (Get-Date); ultima = (Get-Date); peticiones = 0 }
+        [void]$script:Orden.Add($ip)
+        $nuevo = $true
+    }
+    $k = $script:Clientes[$ip]
+    $k.ultima = (Get-Date)
+    $k.peticiones++
+
+    if (-not [string]::IsNullOrWhiteSpace($nombre)) {
+        if ($k.nombre -ne $nombre) { $k.nombre = $nombre; $nuevo = $true }
+    } elseif ([string]::IsNullOrWhiteSpace($k.nombre)) {
+        $k.nombre = Adivinar-Nombre $ip
+        $nuevo = $true
+    }
+    if ($nuevo) { Add-Registro "conexion" ("Celular: " + $k.nombre + " (" + $ip + ")") }
+}
+
+function Get-Clientes {
+    $lista = @()
+    foreach ($ip in $script:Orden) {
+        if (-not $script:Clientes.ContainsKey($ip)) { continue }
+        $k = $script:Clientes[$ip]
+        $dif = (Get-Date) - $k.ultima
+        $lista += [PSCustomObject]@{
+            ip = $k.ip; nombre = $k.nombre; peticiones = $k.peticiones
+            activa = ($dif.TotalSeconds -lt 30)
+            hace = [int]$dif.TotalSeconds
+        }
+    }
+    return $lista
+}
+
+
+# ===================================================================
+#  EL SISTEMA
+# ===================================================================
+function Get-IPLocal {
+    $ip = ''
+    try {
+        $ruta = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+                Sort-Object RouteMetric | Select-Object -First 1
+        if ($ruta) {
+            $a = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias $ruta.InterfaceAlias -ErrorAction SilentlyContinue |
+                 Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+                 Select-Object -First 1
+            if ($a) { $ip = $a.IPAddress }
+        }
+    } catch { }
+    return $ip
+}
+
+function Get-Sistema {
+    # el vigilante escribe cache.json cada 2 s. leer ese archivo es
+    # instantaneo, mientras que consultarlo directo tarda 18 segundos.
+    $archivo = Join-Path $RAIZ 'cache.json'
+    try {
+        if (Test-Path $archivo) {
+            $t = [System.IO.File]::ReadAllText($archivo)
+            if ($t) {
+                $d = $t | ConvertFrom-Json
+                # el bluetooth no lo vigila el vigilante porque pnputil
+                # tarda casi un segundo; se guarda 20 segundos aqui
+                $d | Add-Member -NotePropertyName bluetooth -NotePropertyValue (Get-Bluetooth) -Force
+                return $d
+            }
+        }
+    } catch { }
+    # sin vigilante corriendo: se calcula una vez y se cachea
+    return Get-Cacheado 'sistema' 15 { Get-SistemaReal }
+}
+
+function Get-SistemaReal {
+    $os  = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $cs  = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $dis = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+    $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue
+    $ex  = Get-InfoExtra
+    $up = ''
+    if ($os -and $os.LastBootUpTime) {
+        $dif = (Get-Date) - $os.LastBootUpTime
+        $d = [int]$dif.TotalDays
+        if ($d -gt 0) { $up = "$d d $($dif.Hours) h" } else { $up = "$($dif.Hours) h $($dif.Minutes) m" }
+    }
+    return [ordered]@{
+        pc = $env:COMPUTERNAME; usuario = $env:USERNAME
+        sistema = if ($os) { [string]$os.Caption } else { 'Windows' }
+        version = if ($os) { [string]$os.Version } else { '' }
+        activo = $up; procesos = (Get-Process).Count
+        ramTotal = if ($cs) { $cs.TotalPhysicalMemory } else { 0 }
+        ramUsada = if ($os) { ($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) * 1KB } else { 0 }
+        discoTotal = if ($dis) { $dis.Size } else { 0 }
+        discoUsado = if ($dis) { $dis.Size - $dis.FreeSpace } else { 0 }
+        bateria = if ($bat) { [int]$bat.EstimatedChargeRemaining } else { -1 }
+        enCarga = if ($bat) { [int]$bat.BatteryStatus -eq 2 } else { $false }
+        bluetooth = (Get-Bluetooth)
+        extra = $ex
+        actualizado = (Get-Date).ToString('HH:mm:ss')
+    }
+}
+
+function Get-InfoExtra {
+    return Get-Cacheado 'extra' 60 { Get-InfoExtraReal }
+}
+function Get-InfoExtraReal {
+    $cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+    $adapt = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' -and $_.LinkSpeed } | Select-Object -First 1
+    $perfil = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { $_.IPv4Connectivity -eq 'Internet' } | Select-Object -First 1
+    $temp = $null
+    $t = Get-CimInstance -Namespace 'root/WMI' -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($t) { $temp = [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1) }
+    return [ordered]@{
+        ip = (Get-IPLocal)
+        wifi = if ($perfil) { [string]$perfil.Name } else { '' }
+        red = if ($adapt) { [string]$adapt.Name } else { '' }
+        velocidad = if ($adapt) { [string]$adapt.LinkSpeed } else { '' }
+        temp = $temp
+        nucleos = if ($cpu) { [int]$cpu.NumberOfCores } else { 0 }
+        cpuNombre = if ($cpu) { [string]$cpu.Name } else { '' }
+    }
+}
+
+function Get-Bluetooth {
+    return Get-Cacheado 'bt' 20 { Get-BluetoothReal }
+}
+function Get-BluetoothReal {
+    # Get-PnpDevice tarda hasta 11 segundos. pnputil hace lo mismo
+    # en 1 segundo, asi que se usa ese.
+    $on = $false
+    foreach ($l in (Get-SalidaPnP 'Bluetooth')) {
+        $t = $l.Trim()
+        if ($t -match '^(Estado|Status)\s*:\s*(.+)$') {
+            $e = (Sin-Tildes $matches[2].Trim())
+            if ($e -match 'Iniciado|OK|Working|Funcionando') { $on = $true; break }
+        }
+    }
+    return [ordered]@{ encendido = $on }
+}
+
+function Get-Internet {
+    return Get-Cacheado 'net' 20 { Get-InternetReal }
+}
+function Get-InternetReal {
+    $red = $false
+    try {
+        $ruta = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1
+        $red = [bool]$ruta
+    } catch { }
+    return [ordered]@{ internet = $red; red = $red }
+}
+
+# ===================================================================
+#  PROGRAMAS
+# ===================================================================
+function Get-Apps {
+ return Get-Cacheado 'apps' 300 { Get-AppsReal }
+}
+function Get-AppsReal {
+  $nombres = @()
+  try {
+    $inicio = New-Object -ComObject WScript.Shell
+    $dirs = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
+              "$env:APPDATA\Microsoft\Windows\Start Menu\Programs")
+    foreach ($d in $dirs) {
+      if (-not (Test-Path $d)) { continue }
+      $carpetas = Get-ChildItem $d -Directory -ErrorAction SilentlyContinue
+      $carpetas = @($carpetas) + @(Get-ChildItem $d -File -Filter *.lnk -ErrorAction SilentlyContinue)
+      foreach ($c in $carpetas) {
+        try {
+          $lnk = $inicio.CreateShortcut($c.FullName)
+          $n = if ($lnk.TargetPath) { (Split-Path $lnk.TargetPath -Leaf) -replace '\.exe$','' } else { $c.BaseName }
+          if ($n) { $nombres += $n }
+        } catch { }
+      }
+    }
+  } catch { }
+  $otros = @('notepad', 'calc', 'mspaint', 'explorer', 'cmd', 'control', 'taskmgr', 'regedit')
+  $nombres += $otros
+  return @($nombres | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+function Get-Atajos {
+  # recorrer el menu de inicio es lento, se cachea
+  return Get-Cacheado 'links' 600 {
+    $dirs = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs")
+    $lista = @()
+    foreach ($d in $dirs) {
+      if (Test-Path $d) { $lista += Get-ChildItem $d -Recurse -Filter *.lnk -ErrorAction SilentlyContinue }
+    }
+    $lista
+  }
+}
+
+function Invocar-WhatsApp {
+  $fam = Get-Cacheado 'wafamilia' 600 {
+    (Get-AppxPackage -Name '*WhatsApp*' -ErrorAction SilentlyContinue |
+     Select-Object -First 1).PackageFamilyName
+  }
+  if ($fam) {
+    # el !App va DENTRO de las comillas. si queda afuera, explorer
+    # recibe dos argumentos, no encuentra la ruta y abre cualquier cosa
+    $destino = 'shell:AppsFolder\' + $fam + '!App'
+    Start-Process explorer.exe -ArgumentList $destino
+    Start-Sleep -Milliseconds 500
+    if (Get-Process -Name 'WhatsApp.Root' -ErrorAction SilentlyContinue) { return 'Abriendo WhatsApp' }
+  }
+  Start-Process 'https://web.whatsapp.com'
+  return 'Abriendo WhatsApp Web'
+}
+
+function Invocar-Abrir([string]$que) {
+  if (-not $que) { return @{ error = 'No se dijo que abrir' } }
+  Add-Registro "ABRIR" $que
+  if ($que -match '^https?://') { Start-Process $que; return @{ ok = $true; mensaje = "Abriendo $que" } }
+
+  $todos = @(Get-Atajos)
+  $c1 = $todos | Where-Object { $_.BaseName -ieq $que } | Select-Object -First 1
+  if (-not $c1) { $c1 = $todos | Where-Object { $_.BaseName -like "*$que*" } | Select-Object -First 1 }
+  if ($c1) { Start-Process $c1.FullName; return @{ ok = $true; mensaje = "Abriendo $($c1.BaseName)" } }
+
+  if ($que -eq 'whatsapp') { return @{ ok = $true; mensaje = (Invocar-WhatsApp) } }
+
+  $rutas = @("$env:ProgramFiles\$que.exe", "${env:ProgramFiles(x86)}\$que.exe",
+             "$env:LOCALAPPDATA\$que.exe", "$que.exe", "$env:ProgramData\$que.exe")
+  foreach ($r in $rutas) { if (Test-Path $r) { Start-Process $r; return @{ ok = $true; mensaje = "Abriendo $que" } } }
+  try { Start-Process $que -ErrorAction Stop; return @{ ok = $true; mensaje = "Abriendo $que" } } catch { }
+  return @{ error = "No se encontro: $que" }
+}
+
+function Invoke-Orden([string]$orden) {
+  Add-Registro "ORDEN" $orden
+  try {
+    $salida = Invoke-Expression -Command $orden 2>&1 | Out-String -Width 200
+    return @{ ok = $true; salida = ($salida -split "`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -First 20) -join "`n" }
+  } catch { return @{ error = $_.Exception.Message } }
+}
+
+
+# ===================================================================
+#  VOLUMEN
+# ===================================================================
+function Volumen([string]$accion) {
+  if ($accion -eq 'leer') { return 40 }
+  $vk = 0
+  switch ($accion) {
+    'subir' { $vk = 175 }
+    'bajar' { $vk = 174 }
+    'silencio' { $vk = 173 }
+    default { return @{ error = "Accion desconocida" } }
+  }
+  Add-Registro "VOLUMEN" $accion
+  $n = if ($accion -eq 'subir') { 2 } else { 1 }
+  for ($i = 0; $i -lt $n; $i++) {
+    if (Entrada-Cargada) { [EntradaWin]::Tecla($vk, $false); Start-Sleep -Milliseconds 30; [EntradaWin]::Tecla($vk, $true) }
+    Start-Sleep -Milliseconds 30
+  }
+  return @{ ok = $true }
+}
+
+# ===================================================================
+#  RATON Y TECLADO
+# ===================================================================
+function Get-RatonPos {
+  if (-not (Entrada-Cargada)) { return $null }
+  $p = New-Object System.Drawing.Point
+  [void][EntradaWin]::GetCursorPos([ref]$p)
+  return $p
+}
+
+function Mover-Raton([int]$dx, [int]$dy) {
+  if (-not (Entrada-Cargada)) { return @{ error = 'Raton no disponible' } }
+  $p = Get-RatonPos
+  if ($null -eq $p) { return @{ error = 'Raton no disponible' } }
+  $nx = $p.X + $dx
+  $ny = $p.Y + $dy
+  $scr = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  if ($nx -lt 0) { $nx = 0 }
+  if ($ny -lt 0) { $ny = 0 }
+  if ($nx -gt $scr.Width - 1) { $nx = $scr.Width - 1 }
+  if ($ny -gt $scr.Height - 1) { $ny = $scr.Height - 1 }
+  [void][EntradaWin]::SetCursorPos($nx, $ny)
+  return @{ ok = $true; x = $nx; y = $ny }
+}
+
+function Clic-Raton([string]$boton) {
+  if (-not (Entrada-Cargada)) { return @{ error = 'Raton no disponible' } }
+  $b = $boton.ToLower().Trim()
+  if ($b -eq 'izq' -or $b -eq 'izquierdo') { [EntradaWin]::Clic(2) }
+  elseif ($b -eq 'der' -or $b -eq 'derecho') { [EntradaWin]::Clic(8) }
+  elseif ($b -eq 'medio') { [EntradaWin]::Clic(32) }
+  elseif ($b -eq 'arriba' -or $b -eq 'rueda') { [EntradaWin]::RuedaGiro(120) }
+  elseif ($b -eq 'abajo') { [EntradaWin]::RuedaGiro(-120) }
+  else { return @{ error = "Boton desconocido: $boton" } }
+  return @{ ok = $true }
+}
+
+# Traduce nombres a codigos. Acepta combinaciones separadas por "+",
+# por ejemplo "ctrl+c" o "ctrl+shift+v"
+function A-Codigos([string]$t) {
+  $mapa = @{
+    'enter'=13; 'intro'=13; 'borrar'=8; 'retroceso'=8; 'tab'=9; 'espacio'=32; 'esc'=27;
+    'izq'=37; 'izquierda'=37; 'der'=39; 'derecha'=39; 'arriba'=38; 'abajo'=40;
+    'borrado'=46; 'supr'=46; 'inicio'=36; 'fin'=35; 'pagina'=33; 'repagina'=33;
+    'paginaabajo'=34; 'repaginaabajo'=34;
+    'ctrl'=17; 'control'=17; 'alt'=18; 'shift'=16; 'win'=91
+  }
+  $salida = @()
+  foreach ($parte in ($t -split '\+')) {
+    $p = $parte.Trim().ToLower()
+    if ($p -eq '') { continue }
+    if ($mapa.ContainsKey($p)) { $salida += $mapa[$p]; continue }
+    if ($p.Length -eq 1 -and $p -match '^[a-z0-9]$') {
+      if ($p -match '^[a-z]$') { $salida += [int][char]$p - 32 } else { $salida += [int][char]$p }
+      continue
+    }
+    return @()
+  }
+  return $salida
+}
+
+function Tecla-Raton([string]$t) {
+  if (-not (Entrada-Cargada)) { return @{ error = 'Teclado no disponible' } }
+  $t = $t.ToLower().Trim()
+  if (-not $t) { return @{ error = 'Tecla vacia' } }
+  $codigos = @(A-Codigos $t)
+  if ($codigos.Count -eq 0) { return @{ error = "Tecla no reconocida: $t" } }
+  $n = $codigos.Count
+  for ($i = 0; $i -lt $n - 1; $i++) { [EntradaWin]::Tecla($codigos[$i], $false) }
+  [EntradaWin]::Tecla($codigos[$n - 1], $false)
+  Start-Sleep -Milliseconds 30
+  [EntradaWin]::Tecla($codigos[$n - 1], $true)
+  for ($i = $n - 2; $i -ge 0; $i--) { [EntradaWin]::Tecla($codigos[$i], $true) }
+  return @{ ok = $true }
+}
+
+# ===================================================================
+#  BLUETOOTH
+# ===================================================================
+function Cambia-Bluetooth {
+  try {
+    Add-Type -AssemblyName System.Windows.Forms
+    $s = New-Object -ComObject WScript.Shell
+    # se intenta por el enfoque clasico de Windows
+    $items = (New-Object -ComObject Shell.Application).NameSpace('shell:::{A1804768-3205-11D0-B6B4-00A0C903EFB0}').Items()
+    foreach ($i in $items) {
+      if ($i.Name -match 'Bluetooth') { $i.Invokeverb('activate'); return @{ ok = $true; mensaje = 'Cambiando Bluetooth' } }
+    }
+  } catch { }
+  return @{ error = 'No se pudo cambiar el Bluetooth' }
+}
+
+# ===================================================================
+#  USB
+# ===================================================================
+function Get-Usb {
+ return Get-Cacheado 'usb' 300 { Get-UsbReal }
+}
+
+# pnputil escribe en utf-8. si se llama con el operador &, la consola lo
+# convierte con la pagina de codigos del sistema y "raiz" se vuelve "ra?z",
+# y despues no se puede leer. Por eso se lee como utf-8 de verdad.
+function Get-SalidaPnP([string]$clase) {
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'pnputil.exe'
+        $psi.Arguments = "/enum-devices /class $clase"
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $txt = $proc.StandardOutput.ReadToEnd()
+        [void]$proc.WaitForExit(30000)
+        if (-not $txt) { return @() }
+        return @($txt -split "`r?`n")
+    } catch { return @() }
+}
+
+# quita tildes y la enye, para poder comparar nombres sin romperse
+function Sin-Tildes([string]$s) {
+    if (-not $s) { return '' }
+    # se pasa a minuscula primero: las claves de un hashtable en
+    # PowerShell no distinguen mayusculas, asi que 'a' y 'A' colisionan
+    $s = $s.ToLower()
+    $s = $s.Replace('á','a').Replace('é','e').Replace('í','i').Replace('ó','o')
+    $s = $s.Replace('ú','u').Replace('ü','u').Replace('ñ','n')
+    return $s
+}
+
+# nombres que no le sirven de nada al usuario: cables, hubs, root hubs
+$script:INUTILES = 'concentrador|host controller|raiz usb|controlador de host|usb root hub|usb 3\.0\)|dispositivo de almacenamiento|dispositivo de serial|dispositivo usb'
+
+# de una entrada de pnputil saca el nombre que se le muestra al usuario,
+# o nada si es algo que no interesa
+function Nombre-Limpio([string]$desc, [string]$fab) {
+    if (-not $desc) { return '' }
+    $n = (Sin-Tildes $desc).Trim()
+    if ($n -match '^dispositivo (compuesto|de |usb|inalambrico)') {
+        $f = (Sin-Tildes $fab).Trim()
+        if ($f -and $f -notmatch '^dispositivo') { $n = $f }
+    }
+    if ($n -match $script:INUTILES) { return '' }
+    return $desc.Trim()
+}
+
+function Get-UsbReal {
+  $lista = New-Object System.Collections.ArrayList
+  $vistos = @{}
+  $desc = ''; $fab = ''; $estado = ''
+
+  $lineas = @(Get-SalidaPnP 'USB')
+  for ($i = 0; $i -le $lineas.Count; $i++) {
+    $t = ''
+    if ($i -lt $lineas.Count) { $t = $lineas[$i].Trim() }
+    $fin = ($i -eq $lineas.Count)
+    if ($fin -or ($t -and $t -match '^(Id\. de instancia|Instancia id|Instance id)\s*:')) {
+      # se cierra el dispositivo anterior
+      $n = Nombre-Limpio $desc $fab
+      if ($n -and $estado -notmatch 'Desconectado|Not Present' -and -not $vistos.ContainsKey($n)) {
+        $vistos[$n] = $true
+        [void]$lista.Add([PSCustomObject]@{
+          nombre = $n; estado = $estado
+          conectado = ($estado -match 'Iniciado|OK|Working|Funcionando')
+        })
+      }
+      $desc = ''; $fab = ''; $estado = ''
+      if (-not $fin) { continue }
+    }
+    if ($t -match '^(Descripci.n del dispositivo|Class Description|Device Description)\s*:\s*(.+)$') { $desc = $matches[2] }
+    elseif ($t -match '^(Nombre del fabricante|Manufacturer)\s*:\s*(.+)$') { $fab = $matches[2] }
+    elseif ($t -match '^(Estado|Status)\s*:\s*(.+)$') { $estado = $matches[2].Trim() }
+  }
+  return @($lista)
+}
+
+# ===================================================================
+#  PROCESOS
+# ===================================================================
+function Get-Abiertos {
+ return Get-Cacheado 'abiertos' 8 { Get-AbiertosReal }
+}
+function Get-AbiertosReal {
+  $lista = @()
+  try {
+    $p = Get-Process -ErrorAction SilentlyContinue |
+         Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle.Trim() -ne '' }
+    foreach ($x in $p) {
+      $lista += [PSCustomObject]@{
+        pid = $x.Id; titulo = $x.MainWindowTitle.Trim(); nombre = $x.ProcessName
+      }
+    }
+  } catch { }
+  return $lista
+}
+
+function Cierra-Proceso([string]$pidTexto) {
+  $id = 0
+  try { $id = [int]$pidTexto } catch { return @{ error = 'Pid incorrecto' } }
+  try {
+    $p = Get-Process -Id $id -ErrorAction Stop
+    Add-Registro "CERRAR" $p.ProcessName
+    $p.CloseMainWindow() | Out-Null
+    Start-Sleep -Milliseconds 400
+    $p = Get-Process -Id $id -ErrorAction SilentlyContinue
+    if ($p) { Stop-Process -Id $id -Force }
+    $script:Cache.Remove('abiertos')
+    return @{ ok = $true; mensaje = 'Cerrado' }
+  } catch { return @{ error = 'No se pudo cerrar' } }
+}
+
+# ===================================================================
+#  PORTAPAPELES
+# ===================================================================
+function Get-Portapapeles {
+  $t = ''
+  try { $t = [System.Windows.Forms.Clipboard]::GetText() } catch { }
+  if (-not $t) { try { $t = Get-Clipboard -Raw } catch { } }
+  return @{ ok = $true; texto = [string]$t }
+}
+
+function Set-Portapapeles([string]$t) {
+  try {
+    $atencion = [System.Threading.Thread]::CurrentThread.ApartmentState
+    if ($atencion -ne 'STA') {
+      return @{ error = 'El portapapeles necesita un hilo con ventanas' }
+    }
+    [System.Windows.Forms.Clipboard]::SetText($t)
+    return @{ ok = $true; mensaje = 'Puesto en la PC' }
+  } catch { return @{ error = $_.Exception.Message } }
+}
+
+# ===================================================================
+#  ARCHIVOS
+# ===================================================================
+function Get-Archivos {
+  try { if (-not (Test-Path $CARPETA)) { New-Item -ItemType Directory -Path $CARPETA -Force | Out-Null } } catch { }
+  $lista = @()
+  try {
+    foreach ($f in (Get-ChildItem $CARPETA -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)) {
+      $lista += [PSCustomObject]@{
+        nombre = $f.Name; tamano = $f.Length; fecha = $f.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
+      }
+    }
+  } catch { }
+  return $lista
+}
+
+function Borra-Archivo([string]$nombre) {
+  if (-not $nombre -or $nombre -match '[\/\\]') { return @{ error = 'Nombre no valido' } }
+  $ruta = Join-Path $CARPETA $nombre
+  if (-not (Test-Path $ruta)) { return @{ error = 'No encontrado' } }
+  try { Remove-Item $ruta -Force; Add-Registro "BORRAR" $nombre; return @{ ok = $true; mensaje = 'Borrado' } }
+  catch { return @{ error = 'No se pudo borrar' } }
+}
+
+function Busca-Archivos([string]$texto) {
+  if (-not $texto) { return @() }
+  # Descargas ya incluye la carpeta Desde-Celular, asi que al revisarla
+  # de nuevo el mismo archivo salia dos veces. $vistos lo evita.
+  $lista = New-Object System.Collections.ArrayList
+  $vistos = @{}
+  try {
+    $raiz = if ($env:USERPROFILE) { $env:USERPROFILE } else { 'C:\' }
+    $bases = @("$raiz\Desktop", "$raiz\Escritorio", "$raiz\Documents", "$raiz\Documentos",
+               "$raiz\Descargas", "$raiz\Downloads", $CARPETA)
+    foreach ($b in $bases) {
+      if (-not (Test-Path $b)) { continue }
+      $n = 0
+      foreach ($f in (Get-ChildItem $b -Recurse -File -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Name -like "*$texto*" })) {
+        if ($n -ge 30) { break }
+        $clave = $f.DirectoryName + '\' + $f.Name
+        if ($vistos.ContainsKey($clave)) { continue }
+        $vistos[$clave] = $true
+        $n++
+        [void]$lista.Add([PSCustomObject]@{ nombre = $f.Name; ruta = $f.DirectoryName })
+      }
+    }
+  } catch { }
+  return @($lista)
+}
+
+function Captura {
+  try {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $img = New-Object System.Drawing.Bitmap($b.Width, $b.Height)
+    $g = [System.Drawing.Graphics]::FromImage($img)
+    $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+    $ms = New-Object System.IO.MemoryStream
+    $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $g.Dispose(); $img.Dispose()
+    return $ms.ToArray()
+  } catch { return $null }
+}
+
+# ===================================================================
+#  ENERGIA
+# ===================================================================
+$script:CUENTAA = Join-Path $RAIZ 'cuentaatras.json'
+
+function Get-CuentaAtras {
+  if (-not (Test-Path $script:CUENTAA)) { return @{ activo = $false } }
+  try {
+    $t = [System.IO.File]::ReadAllText($script:CUENTAA)
+    if (-not $t) { return @{ activo = $false } }
+    return ($t | ConvertFrom-Json)
+  } catch { return @{ activo = $false } }
+}
+
+function Programa-CuentaAtras([string]$tipo, [int]$minutos) {
+  $minutos = [Math]::Max(1, [Math]::Min(600, $minutos))
+  $vence = (Get-Date).AddMinutes($minutos)
+  $datos = [ordered]@{ tipo = $tipo; minutos = $minutos; vence = $vence.ToString('o'); puesto = (Get-Date).ToString('o') }
+  [System.IO.File]::WriteAllText($script:CUENTAA, (ConvertTo-Json $datos), (New-Object System.Text.UTF8Encoding $false))
+  Add-Registro "ENERGIA" ("programado: $tipo en $minutos min")
+  $lanzador = Join-Path $RAIZ 'cuentaatras.ps1'
+  if (Test-Path $lanzador) {
+    Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'RemoteSigned', `
+        '-WindowStyle', 'Hidden', '-File', "`"$lanzador`"" -WindowStyle Hidden
+  }
+  return @{ ok = $true; mensaje = "$tipo en $minutos minutos"; vence = $datos.vence }
+}
+
+function Cancela-CuentaAtras {
+  if (Test-Path $script:CUENTAA) {
+    Remove-Item $script:CUENTAA -Force -ErrorAction SilentlyContinue
+    Add-Registro "ENERGIA" "temporizador cancelado"
+    return @{ ok = $true; mensaje = 'Temporizador cancelado' }
+  }
+  return @{ ok = $true; mensaje = 'No habia temporizador' }
+}
+
+
+# ===================================================================
+#  REPRODUCTOR DE MUSICA Y VIDEO
+#  usa el control de Windows Media por detras: no abre ninguna
+#  ventana, asi que la musica sigue sonando aunque cierres Remoto
+# ===================================================================
+function Get-Player {
+    if ($script:Reproductor -ne $null) { return $script:Reproductor }
+    try {
+        $w = New-Object -ComObject WMPlayer.OCX
+        $w.settings.volume = 40
+        $w.settings.mute = $false
+        $script:Reproductor = $w
+        return $w
+    } catch { return $null }
+}
+
+function Get-CarpetasMedio {
+    $u = $env:USERPROFILE
+    $r = @(
+        (Join-Path $u 'Music'), (Join-Path $u 'Música'),
+        (Join-Path $u 'OneDrive\Música'), (Join-Path $u 'OneDrive\Music'),
+        (Join-Path $u 'Videos'), (Join-Path $u 'OneDrive\Videos'),
+        (Join-Path $u 'Descargas')
+    )
+    return @($r | Where-Object { Test-Path $_ } | Select-Object -Unique)
+}
+
+function Get-Medios {
+    Get-Cacheado 'medios' 180 {
+        $audio = @('.mp3', '.m4a', '.wav', '.flac', '.wma', '.aac', '.ogg')
+        $video = @('.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v')
+        $lista = @()
+        foreach ($d in (Get-CarpetasMedio)) {
+            $archivos = Get-ChildItem $d -Recurse -File -ErrorAction SilentlyContinue |
+                        Where-Object {
+                            $e = $_.Extension.ToLower()
+                            ($audio -contains $e) -or ($video -contains $e)
+                        } | Select-Object -First 400
+            foreach ($a in $archivos) {
+                $e = $a.Extension.ToLower()
+                $lista += [ordered]@{
+                    nombre = $a.Name
+                    ruta = $a.FullName
+                    tipo = if ($audio -contains $e) { 'audio' } else { 'video' }
+                    tamano = $a.Length
+                    fecha = $a.LastWriteTime.ToString('yyyy-MM-dd')
+                }
+            }
+        }
+        $lista
+    }
+}
+
+function Invoke-Player([string]$tipo, [string]$archivo) {
+    $p = Get-Player
+    switch ($tipo) {
+        'play' {
+            if (-not $archivo) { return @{ error = 'Cancion vacia' } }
+            $ruta = $archivo
+            if (-not (Test-Path $ruta)) {
+                $ruta = (Get-Medios | Where-Object { $_.nombre -eq $archivo } | Select-Object -First 1).ruta
+            }
+            if (-not $ruta -or -not (Test-Path $ruta)) { return @{ error = 'No se encontro el archivo' } }
+            Add-Registro "MEDIA" ("play " + (Split-Path $ruta -Leaf))
+            if ($p) { $p.URL = 'file:///' + ($ruta -replace '\\', '/'); $p.control.play() }
+            else { Start-Process $ruta }
+            return @{ ok = $true; mensaje = 'Reproduciendo'; archivo = (Split-Path $ruta -Leaf) }
+        }
+        'pausa'   { if ($p) { $p.control.pause() }; Add-Registro "MEDIA" "pausa";  return @{ ok = $true; mensaje = 'Pausa' } }
+        'seguir'  { if ($p) { $p.control.play() };  Add-Registro "MEDIA" "seguir"; return @{ ok = $true; mensaje = 'Sigue' } }
+        'detener' { if ($p) { $p.control.stop() };  Add-Registro "MEDIA" "stop";   return @{ ok = $true; mensaje = 'Detenido' } }
+        'volumen' { if ($p) { $p.settings.volume = $archivo }; Volumen('leer') | Out-Null; return @{ ok = $true } }
+        'estado' {
+            if (-not $p) { return @{ ok = $true; reproducciendo = $false } }
+            return [ordered]@{
+                ok = $true
+                reproduciendo = ($p.playState -eq 3)
+                posicion = [int]$p.currentPosition
+                duracion = [int]$p.currentMediaDuration
+                archivo = if ($p.currentMedia) { Split-Path $p.currentMedia.name -Leaf } else { '' }
+                volumen = [int]$p.settings.volume
+            }
+        }
+    }
+    return @{ error = 'Accion desconocida' }
+}
+
+# ===================================================================
+#  GUIONES: scripts guardados con nombre
+# ===================================================================
+$script:GUIONES = Join-Path $RAIZ 'guiones.json'
+
+function Get-Guiones {
+    # IMPORTANTE: la lista se emite sin la coma inicial. ponerla
+    # (return ,$lista) envuelve el arreglo dos veces y quien lo recibe
+    # ve un unico elemento que es el arreglo entero, no los guiones.
+    # quien llama debe usar siempre @(Get-Guiones)
+    $salida = New-Object System.Collections.ArrayList
+    if (Test-Path $script:GUIONES) {
+        try {
+            $t = [System.IO.File]::ReadAllText($script:GUIONES)
+            if (-not [string]::IsNullOrWhiteSpace($t)) {
+                # OJO: @($t | ConvertFrom-Json) NO funciona. ese cmdlet
+                # entrega el arreglo entero como un solo objeto, asi que
+                # @() lo envuelve y queda [[{...},{...}]]. primero se
+                # guarda en una variable y despues se envuelve.
+                $leidos = $t | ConvertFrom-Json
+                foreach ($x in @($leidos)) {
+                    if ($null -eq $x) { continue }
+                    $n = [string]$x.nombre
+                    if ([string]::IsNullOrWhiteSpace($n)) { continue }
+                    [void]$salida.Add([PSCustomObject]@{
+                        nombre    = $n
+                        contenido = [string]$x.contenido
+                        creado    = [string]$x.creado
+                    })
+                }
+            }
+        } catch { }
+    }
+    $salida
+}
+
+function Guardar-Guiones($guiones) {
+    $arr = @()
+    foreach ($x in @($guiones)) {
+        if ($null -eq $x) { continue }
+        $n = [string]$x.nombre
+        if ([string]::IsNullOrWhiteSpace($n)) { continue }
+        $arr += ,([ordered]@{
+            nombre = $n; contenido = [string]$x.contenido; creado = [string]$x.creado
+        })
+    }
+    $json = ConvertTo-Json -InputObject $arr -Depth 4
+    [System.IO.File]::WriteAllText($script:GUIONES, $json, (New-Object System.Text.UTF8Encoding $false))
+}
+
+function Add-Guion([string]$nombre, [string]$contenido) {
+    if ([string]::IsNullOrWhiteSpace($nombre) -or [string]::IsNullOrWhiteSpace($contenido)) {
+        return @{ error = 'Falta nombre o contenido' }
+    }
+    $n = $nombre.Trim()
+    $arr = @()
+    foreach ($g in @(Get-Guiones)) { if ($g.nombre -ne $n) { $arr += ,$g } }
+    $arr += ,([ordered]@{
+        nombre = $n; contenido = $contenido
+        creado = (Get-Date).ToString('yyyy-MM-dd HH:mm')
+    })
+    Guardar-Guiones $arr
+    Add-Registro "GUION" "guardado: $n"
+    return @{ ok = $true; mensaje = "Guion guardado: $n" }
+}
+
+function Borra-Guion([string]$nombre) {
+    if ([string]::IsNullOrWhiteSpace($nombre)) { return @{ error = 'Falta el nombre' } }
+    $antes = @(Get-Guiones)
+    $arr = @()
+    foreach ($g in $antes) { if ($g.nombre -ne $nombre) { $arr += ,$g } }
+    if ($arr.Count -eq $antes.Count) { return @{ error = 'No existe ese guion' } }
+    Guardar-Guiones $arr
+    Add-Registro "GUION" "borrado: $nombre"
+    return @{ ok = $true; mensaje = 'Guion borrado' }
+}
+
+function Ejecutar-Guion([string]$nombre) {
+    $g = $null
+    foreach ($x in @(Get-Guiones)) { if ($x.nombre -eq $nombre) { $g = $x; break } }
+    if (-not $g) { return @{ error = 'No existe ese guion' } }
+    Add-Registro "GUION" "ejecutado: $nombre"
+    $salida = ''
+    try {
+        $salida = Invoke-Expression -Command ([string]$g.contenido) 2>&1 | Out-String -Width 200
+    } catch { $salida = 'ERROR: ' + $_.Exception.Message }
+    $salida = ($salida -split "`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -First 40) -join "`n"
+    return @{ ok = $true; nombre = $nombre; salida = $salida.Trim() }
+}
+
+# ===================================================================
+#  ARRANQUE
+# ===================================================================
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+[System.Threading.Thread]::CurrentThread.SetApartmentState([System.Threading.ApartmentState]::STA)
+
+# el vigilante mantiene cache.json al dia
+$monitor = Join-Path $RAIZ 'monitor-cache.ps1'
+$yaCorre = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+           Where-Object { $_.CommandLine -match 'monitor-cache\.ps1' }
+if (-not $yaCorre -and (Test-Path $monitor)) {
+  Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'RemoteSigned', `
+      '-WindowStyle', 'Hidden', '-File', "`"$monitor`"" -WindowStyle Hidden
+}
+
+# deja libre el puerto
+$con = Get-NetTCPConnection -LocalPort $PUERTO -State Listen -ErrorAction SilentlyContinue
+foreach ($c in $con) {
+  $otro = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
+  if ($otro -and $otro.CommandLine -notmatch 'monitor-cache') {
+    Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
+  }
+}
+Start-Sleep -Seconds 1
+
+try {
+  $listener = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Any, $PUERTO)
+  $listener.Start()
+} catch {
+  Write-Host ""
+  Write-Host "  No se pudo abrir el puerto $PUERTO. Cierra otras copias y reintenta." -ForegroundColor Red
+  Write-Host ""
+  Start-Sleep -Seconds 4
+  exit
+}
+
+# =======================  el bucle  ================================
+while ($true) {
+  $client = $null
+  try {
+    $client = $listener.AcceptTcpClient()
+    $client.NoDelay = $true
+    $client.SendTimeout = 120000
+    $stream = $client.GetStream()
+    $req = Leer-Request $stream
+    if ($null -eq $req) { $client.Close(); continue }
+
+    $uri = [uri]("http://localhost" + $req.Destino)
+    $ruta = $uri.AbsolutePath
+    $q = Parse-Query $uri.Query.TrimStart("?")
+
+    # la pagina del navegador
+    if ($ruta -eq "/" -or $ruta -eq "/index.html") {
+      $html = Get-Content (Join-Path $RAIZ "index.html") -Raw -Encoding UTF8
+      $b = [System.Text.Encoding]::UTF8.GetBytes($html)
+      Escribe $stream "HTTP/1.1 200 OK`r`n"
+      Escribe $stream "Content-Type: text/html; charset=utf-8`r`n"
+      Escribe $stream "Content-Length: $($b.Length)`r`nConnection: close`r`n`r`n"
+      $stream.Write($b, 0, $b.Length); $stream.Flush()
+      $client.Close(); continue
+    }
+
+    $token = $req.Headers["x-token"]
+    if ([string]::IsNullOrEmpty($token)) { $token = $q["t"] }
+    if ($token -ne $CLAVE) {
+      Responder $stream @{ error = 'Clave incorrecta' } 401 'Unauthorized'
+      $client.Close(); continue
+    }
+
+    Registrar-Cliente $client.Client.RemoteEndPoint.Address.ToString() $req.Headers["x-dispositivo"]
+    $M = $req.Metodo
+    $cuerpo = if ($M -eq 'POST') { Get-BodyTexto $req } else { '' }
+    $cerrar = { $client.Close() }
+
+    switch -Regex ("$M $ruta") {
+      '^GET /api/sistema$'      { Responder $stream (Get-Sistema); $cerrar.Invoke(); break }
+      '^GET /api/clientes$'     { Responder $stream @{ clientes = @(Get-Clientes) }; $cerrar.Invoke(); break }
+      '^GET /api/internet$'     { Responder $stream (Get-Internet); $cerrar.Invoke(); break }
+      '^GET /api/usb$'          { Responder $stream @(Get-Usb); $cerrar.Invoke(); break }
+      '^GET /api/abiertos$'     { Responder $stream @(Get-Abiertos); $cerrar.Invoke(); break }
+      '^GET /api/programas$'    { Responder $stream @(Get-Apps); $cerrar.Invoke(); break }
+      '^GET /api/archivos$'     { Responder $stream @(Get-Archivos); $cerrar.Invoke(); break }
+      '^GET /api/portapapeles$' { Responder $stream (Get-Portapapeles); $cerrar.Invoke(); break }
+      '^GET /api/energia$' {
+        $e = Get-CuentaAtras
+        if ($e -and $e.vence) {
+          $queda = ([datetime]$e.vence) - (Get-Date)
+          $e | Add-Member -NotePropertyName segundos -NotePropertyValue ([int]$queda.TotalSeconds) -Force
+          $e | Add-Member -NotePropertyName activo -NotePropertyValue ($queda.TotalSeconds -gt 0) -Force
+        }
+        Responder $stream $e; $cerrar.Invoke(); break
+      }
+      '^GET /api/registro$' {
+        $lineas = Get-Content $REGISTRO -Encoding UTF8 -ErrorAction SilentlyContinue
+        $lista = @()
+        foreach ($l in @($lineas | Select-Object -Last 40)) {
+          if ($l -match '^\[(\d+:\d+:\d+)\]\s+(\S+)\s*(.*)$') {
+            $lista += [ordered]@{ hora = $matches[1]; tipo = $matches[2]; texto = $matches[3] }
+          }
+        }
+        Responder $stream $lista; $cerrar.Invoke(); break
+      }
+      '^GET /api/raton/pos$' {
+        $p = Get-RatonPos
+        if ($p) { Responder $stream @{ ok = $true; x = $p.X; y = $p.Y } } else { Responder $stream @{ error = 'Raton no disponible' } }
+        $cerrar.Invoke(); break
+      }
+      '^GET /api/captura$' {
+        $img = Captura
+        if ($img) {
+          Escribe $stream "HTTP/1.1 200 OK`r`n"
+          Escribe $stream "Content-Type: image/png`r`n"
+          Escribe $stream "Content-Length: $($img.Length)`r`nConnection: close`r`n`r`n"
+          $stream.Write($img, 0, $img.Length); $stream.Flush()
+        } else { Responder $stream @{ error = 'No se pudo capturar' } }
+        $cerrar.Invoke(); break
+      }
+
+      '^POST /api/raton/mover$' {
+        $d = Get-CuerpoJson $cuerpo
+        if ($null -eq $d) { Responder $stream @{ error = 'Datos no validos' } 400 'Bad Request'; $cerrar.Invoke(); break }
+        Responder $stream (Mover-Raton ([int]$d.dx) ([int]$d.dy)); $cerrar.Invoke(); break
+      }
+      '^POST /api/raton/click$' {
+        Add-Registro "RATON" ("clic " + $cuerpo.Trim())
+        Responder $stream (Clic-Raton $cuerpo.Trim()); $cerrar.Invoke(); break
+      }
+      '^POST /api/tecla$' {
+        Add-Registro "TECLADO" $cuerpo.Trim()
+        Responder $stream (Tecla-Raton $cuerpo.Trim()); $cerrar.Invoke(); break
+      }
+      '^POST /api/abrir$'     { Responder $stream (Invocar-Abrir $cuerpo.Trim()); $cerrar.Invoke(); break }
+      '^POST /api/ejecutar$'  { Responder $stream (Invoke-Orden $cuerpo.Trim()); $cerrar.Invoke(); break }
+      '^POST /api/programa$'  {
+        $n = $cuerpo.Trim()
+        Add-Registro "ARRANCAR" $n
+        try { Start-Process $n -ErrorAction Stop; Responder $stream @{ ok = $true; mensaje = "Arrancando $n" } }
+        catch { Responder $stream @{ error = "No se pudo arrancar: $n" } }
+        $cerrar.Invoke(); break
+      }
+      '^POST /api/volumen$'   { Responder $stream (Volumen $cuerpo.Trim()); $cerrar.Invoke(); break }
+      '^POST /api/bluetooth$' {
+        Add-Registro "BLUETOOTH" $cuerpo.Trim()
+        $r = Cambia-Bluetooth
+        $script:Cache.Remove('bt')
+        Responder $stream $r; $cerrar.Invoke(); break
+      }
+      '^POST /api/portapapeles$' { Responder $stream (Set-Portapapeles $cuerpo); $cerrar.Invoke(); break }
+      '^POST /api/cerrar$'    { Responder $stream (Cierra-Proceso $cuerpo.Trim()); $cerrar.Invoke(); break }
+      '^POST /api/buscar$'    { Responder $stream @(Busca-Archivos $cuerpo.Trim()); $cerrar.Invoke(); break }
+      '^POST /api/borrar$'    { Responder $stream (Borra-Archivo $q["nombre"]); $cerrar.Invoke(); break }
+      '^POST /api/bloquear$'  {
+        Add-Registro "BLOQUEAR" ""
+        Responder $stream @{ ok = $true }
+        $cerrar.Invoke(); Start-Sleep -Milliseconds 300
+        Start-Process rundll32.exe -ArgumentList 'user32.dll,LockWorkStation' | Out-Null
+        break
+      }
+      '^POST /api/energia$' {
+        if ($q.ContainsKey('programar')) {
+          $m = 15
+          if ($q.ContainsKey('minutos')) { try { $m = [int]$q['minutos'] } catch { $m = 15 } }
+          Responder $stream (Programa-CuentaAtras $q['programar'] $m)
+          $cerrar.Invoke(); break
+        }
+        if ($q.ContainsKey('cancelar')) {
+          Responder $stream (Cancela-CuentaAtras); $cerrar.Invoke(); break
+        }
+        $a = $cuerpo.Trim()
+        Add-Registro "ENERGIA" $a
+        Responder $stream @{ ok = $true }
+        $cerrar.Invoke(); Start-Sleep -Seconds 2
+        if ($a -eq 'apagar') { Stop-Computer -Force }
+        elseif ($a -eq 'reiniciar') { Restart-Computer -Force }
+        elseif ($a -eq 'dormir') { Start-Process rundll32.exe -ArgumentList 'powrprof.dll,SetSuspendState 0,1,0' }
+        break
+      }
+      '^POST /api/clave$' {
+        $n = $cuerpo.Trim()
+        if ($n.Length -lt 4) { Responder $stream @{ error = 'Minimo 4 caracteres' } }
+        else {
+          [System.IO.File]::WriteAllText($ARCHIVOCLAVE, $n)
+          $script:CLAVE = $n
+          Add-Registro "CLAVE" "cambiada"
+          Responder $stream @{ ok = $true; mensaje = 'Clave cambiada' }
+        }
+        $cerrar.Invoke(); break
+      }
+
+      '^GET /api/reproductor$' {
+        $t = if ($q.ContainsKey('tipo')) { $q['tipo'] } else { 'listar' }
+        if ($t -eq 'listar') { Responder $stream @{ medios = @(Get-Medios) } }
+        else {
+          $arch = if ($q.ContainsKey('archivo')) { $q['archivo'] } else { '' }
+          Responder $stream (Invoke-Player $t $arch)
+        }
+        $cerrar.Invoke(); break
+      }
+      '^GET /api/guiones$' {
+        if ($q['tipo'] -eq 'ejecutar') { Responder $stream (Ejecutar-Guion $q['nombre']) }
+        else {
+          $arr = @()
+          foreach ($g in @(Get-Guiones)) {
+            $arr += ,([ordered]@{ nombre = $g.nombre; creado = $g.creado; contenido = $g.contenido })
+          }
+          Responder $stream ([ordered]@{ guiones = $arr })
+        }
+        $cerrar.Invoke(); break
+      }
+      '^POST /api/guiones$' {
+        $d = Get-CuerpoJson $cuerpo
+        if ($null -eq $d) { Responder $stream @{ error = 'Datos no validos' } 400 'Bad Request'; $cerrar.Invoke(); break }
+        if ($d.accion -eq 'borrar') { Responder $stream (Borra-Guion $d.nombre) }
+        else { Responder $stream (Add-Guion $d.nombre $d.contenido) }
+        $cerrar.Invoke(); break
+      }
+
+      '^GET /descargar$' {
+        $n = $q['nombre']
+        if (-not $n -or $n -match '[\/\\]') { Responder $stream @{ error = 'Nombre no valido' } 400 'Bad Request' }
+        else {
+          $ruta = Join-Path $CARPETA $n
+          if (Test-Path $ruta) {
+            $bytes = [System.IO.File]::ReadAllBytes($ruta)
+            Escribe $stream "HTTP/1.1 200 OK`r`n"
+            Escribe $stream "Content-Type: application/octet-stream`r`n"
+            Escribe $stream "Content-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n"
+            $stream.Write($bytes, 0, $bytes.Length); $stream.Flush()
+          } else { Responder $stream @{ error = 'No encontrado' } 404 'Not Found' }
+        }
+        $cerrar.Invoke(); break
+      }
+      '^POST /subir$' {
+        $n = $q['nombre']
+        if (-not $n -or $n -match '[\/\\]') { Responder $stream @{ error = 'Nombre no valido' } 400 'Bad Request' }
+        elseif ($cuerpo.Length -gt $LIMITE) { Responder $stream @{ error = 'El archivo es muy grande (maximo 500 MB)' } 400 'Bad Request' }
+        else {
+          try {
+            if (-not (Test-Path $CARPETA)) { New-Item -ItemType Directory -Path $CARPETA -Force | Out-Null }
+            [System.IO.File]::WriteAllBytes((Join-Path $CARPETA $n), $req.Body)
+            Add-Registro "SUBIR" $n
+            Responder $stream @{ ok = $true; nombre = $n; tamano = $req.Body.Length }
+          } catch { Responder $stream @{ error = 'No se pudo guardar' } }
+        }
+        $cerrar.Invoke(); break
+      }
+
+      default { Responder $stream @{ error = 'No existe: ' + $ruta } 404 'Not Found'; $cerrar.Invoke() }
+    }
+  } catch {
+    # se anota el motivo real: si no, el error se pierde y no hay
+    # forma de saber por que fallo algo
+    $motivo = $_.Exception.Message
+    $donde  = ''
+    try { $donde = $_.InvocationInfo.Line.Trim() } catch { }
+    Add-Registro 'ERROR' ("$motivo  |  $donde")
+    try { Responder $stream @{ error = 'Error del servidor' } 500 'Internal Server Error' } catch { }
+  }
+  try { if ($client) { $client.Close() } } catch { }
+}

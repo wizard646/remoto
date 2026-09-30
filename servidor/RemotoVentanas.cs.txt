@@ -1,0 +1,478 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Reflection;
+using System.Text;
+using System.Windows.Forms;
+
+// ===================================================================
+//  Ventanas secundarias de Remoto: musica, guiones y portapapeles.
+//  Todas hablan con el servidor por http en 127.0.0.1:8080
+// ===================================================================
+
+// Lector de json minimo: solo objetos con valores simples. Alcanza para
+// lo que devuelve el servidor y evita depender de una biblioteca externa.
+//
+// Recorre el texto respetando comillas y corchetes. La version anterior
+// partia en la primera coma y en el primer corchete que encontraba, asi
+// que un guion con una coma, o con algo como [math]::Round, se rompia y
+// la lista salia con pedazos de codigo en vez del nombre.
+static class MiniJson {
+    public static Dictionary<string, string> Objeto(string json) {
+        var d = new Dictionary<string, string>();
+        if (json == null) return d;
+        int p = Salta(json, 0);
+        if (p >= json.Length || json[p] != '{') return d;
+        LeeObjeto(json, ref p, d);
+        return d;
+    }
+
+    public static List<Dictionary<string, string>> Lista(string json, string clave) {
+        var lista = new List<Dictionary<string, string>>();
+        if (json == null) return lista;
+        int p = BuscaValor(json, clave);
+        if (p < 0) return lista;
+        p = Salta(json, p);
+        if (p >= json.Length || json[p] != '[') return lista;
+        p++;
+        while (true) {
+            p = Salta(json, p);
+            if (p >= json.Length || json[p] == ']') break;
+            if (json[p] == ',') { p++; continue; }
+            if (json[p] != '{') { p++; continue; }
+            var d = new Dictionary<string, string>();
+            LeeObjeto(json, ref p, d);
+            if (d.Count > 0) lista.Add(d);
+        }
+        return lista;
+    }
+
+    public static List<Dictionary<string, string>> Clientes(string json) {
+        return Lista(json, "clientes");
+    }
+
+    // ---------------- interno ----------------
+
+    static int Salta(string s, int p) {
+        while (p < s.Length && (s[p] == ' ' || s[p] == '\t' || s[p] == '\r' || s[p] == '\n')) p++;
+        return p;
+    }
+
+    // encuentra "clave" y devuelve donde empieza su valor
+    static int BuscaValor(string s, string clave) {
+        string pat = "\"" + clave + "\"";
+        int p = 0;
+        while (true) {
+            p = s.IndexOf(pat, p, StringComparison.Ordinal);
+            if (p < 0) return -1;
+            p = Salta(s, p + pat.Length);
+            if (p < s.Length && s[p] == ':') return Salta(s, p + 1);
+            p++;
+        }
+    }
+
+    static void LeeObjeto(string s, ref int p, Dictionary<string, string> d) {
+        if (p >= s.Length || s[p] != '{') return;
+        p++;
+        while (true) {
+            p = Salta(s, p);
+            if (p >= s.Length) return;
+            if (s[p] == '}') { p++; return; }
+            if (s[p] == ',') { p++; continue; }
+            if (s[p] != '"') { p++; continue; }
+            string k = LeeTexto(s, ref p);
+            p = Salta(s, p);
+            if (p < s.Length && s[p] == ':') p++;
+            p = Salta(s, p);
+            string v = LeeValor(s, ref p);
+            if (k.Length > 0) d[k] = v;
+        }
+    }
+
+    static string LeeValor(string s, ref int p) {
+        if (p >= s.Length) return "";
+        char c = s[p];
+        if (c == '"') return LeeTexto(s, ref p);
+        // un objeto o una lista anidados se devuelven tal cual
+        if (c == '{' || c == '[') return LeeCrudo(s, ref p);
+        int ini = p;
+        while (p < s.Length && s[p] != ',' && s[p] != '}' && s[p] != ']') p++;
+        return s.Substring(ini, p - ini).Trim();
+    }
+
+    // texto con comillas, deshaciendo los escapes
+    static string LeeTexto(string s, ref int p) {
+        if (p >= s.Length || s[p] != '"') return "";
+        p++;
+        var sb = new StringBuilder();
+        while (p < s.Length) {
+            char c = s[p];
+            if (c == '\\' && p + 1 < s.Length) {
+                p++;
+                char e = s[p];
+                if (e == 'n') sb.Append('\n');
+                else if (e == 't') sb.Append('\t');
+                else if (e == 'r') sb.Append('\r');
+                else if (e == 'b') sb.Append('\b');
+                else if (e == 'f') sb.Append('\f');
+                else sb.Append(e);
+                p++;
+                continue;
+            }
+            if (c == '"') { p++; break; }
+            sb.Append(c);
+            p++;
+        }
+        return sb.ToString();
+    }
+
+    // texto tal cual, desde una llave o corchete hasta su pareja
+    static string LeeCrudo(string s, ref int p) {
+        int ini = p;
+        char abre = s[p];
+        char cierra = abre == '{' ? '}' : ']';
+        int n = 0;
+        bool enTexto = false;
+        while (p < s.Length) {
+            char c = s[p];
+            if (enTexto) {
+                if (c == '\\') { p += 2; continue; }
+                if (c == '"') enTexto = false;
+            } else {
+                if (c == '"') enTexto = true;
+                else if (c == abre) n++;
+                else if (c == cierra) { n--; if (n == 0) { p++; return s.Substring(ini, p - ini); } }
+            }
+            p++;
+        }
+        return s.Substring(ini);
+    }
+
+    // convierte "1234567" en "1,2 MB"
+    public static string Tamano(string bytes) {
+        long n;
+        if (!long.TryParse(bytes, out n) || n < 0) return "";
+        double kb = n / 1024.0;
+        if (kb < 1024) return string.Format("{0:0} KB", kb);
+        double mb = kb / 1024.0;
+        if (mb < 1024) return string.Format("{0:0.0} MB", mb);
+        return string.Format("{0:0.0} GB", mb / 1024.0);
+    }
+}
+
+// ---------------- fondo comun de las ventanas ----------------------
+class Base : Form {
+    protected static Color Fondo { get { return Color.FromArgb(11, 11, 12); } }
+    protected static Color Txt { get { return Color.FromArgb(245, 245, 247); } }
+    protected static Color Tenue { get { return Color.FromArgb(140, 140, 148); } }
+    protected static Color Linea { get { return Color.FromArgb(28, 28, 33); } }
+
+    static string Clave() {
+        try {
+            string r = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            return File.ReadAllText(Path.Combine(r, "clave.txt")).Trim();
+        } catch { return ""; }
+    }
+
+    public Base(int w, int h, string titulo) {
+        Text = titulo;
+        ClientSize = new Size(w, h);
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        BackColor = Fondo;
+        ForeColor = Txt;
+        Font = new Font("Segoe UI", 9f);
+    }
+
+    protected Label Etiqueta(string txt, int x, int y, int w, Color c, float tam = 8.2f) {
+        var l = new Label {
+            Text = txt, Location = new Point(x, y), Size = new Size(w, 16),
+            ForeColor = c, Font = new Font("Segoe UI", tam), BackColor = Color.Transparent
+        };
+        Controls.Add(l);
+        return l;
+    }
+
+    protected Boton Btn(string ico, string txt, int x, int y, int w, int h) {
+        var b = new Boton { Ico = ico, Rotulo = txt, Location = new Point(x, y), Size = new Size(w, h) };
+        Controls.Add(b);
+        return b;
+    }
+
+    protected void Separador(int x, int y, int w) {
+        var p = new Panel { BackColor = Linea, Size = new Size(w, 1), Location = new Point(x, y) };
+        Controls.Add(p);
+        Controls.SetChildIndex(p, Controls.Count - 1);
+    }
+
+    protected TextBox Caja(int x, int y, int w, int h, bool soloLectura) {
+        var t = new TextBox {
+            Location = new Point(x, y), Size = new Size(w, h),
+            BackColor = Color.FromArgb(19, 19, 22),
+            ForeColor = soloLectura ? Color.FromArgb(180, 180, 190) : Txt,
+            BorderStyle = BorderStyle.None, Multiline = true, ReadOnly = soloLectura,
+            ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f)
+        };
+        Controls.Add(t);
+        return t;
+    }
+
+    // pedirle cosas al servidor sin congelar la ventana
+    protected string Pide(string ruta, string metodo, string cuerpo) {
+        try {
+            var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create("http://127.0.0.1:8080" + ruta);
+            req.Method = metodo;
+            req.Timeout = 6000;
+            req.ReadWriteTimeout = 6000;
+            req.Headers.Add("x-token", Clave());
+            if (cuerpo != null && cuerpo.Length > 0) {
+                var b = System.Text.Encoding.UTF8.GetBytes(cuerpo);
+                req.ContentLength = b.Length;
+                using (var s = req.GetRequestStream()) s.Write(b, 0, b.Length);
+            }
+            using (var r = (System.Net.HttpWebResponse)req.GetResponse())
+            using (var sr = new StreamReader(r.GetResponseStream())) return sr.ReadToEnd();
+        } catch { return null; }
+    }
+
+    protected static string Esc(string s) {
+        return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "").Replace("\n", "\\n");
+    }
+}
+
+// ---------------- musica y video -----------------------------------
+class Reproductor : Base {
+    ListBox lista;
+    Label estado;
+    System.Windows.Forms.Timer reloj;
+    string sonando = "";
+
+    public Reproductor(Form padre) : base(430, 440, "Musica y video") {
+        Etiqueta("EN LA PC", 26, 22, 200, Tenue, 7.5f);
+        Separador(26, 44, 378);
+
+        lista = new ListBox {
+            Location = new Point(26, 58), Size = new Size(378, 250),
+            BackColor = Color.FromArgb(19, 19, 22), ForeColor = Txt,
+            BorderStyle = BorderStyle.None, Font = new Font("Segoe UI", 9f),
+            IntegralHeight = false
+        };
+        lista.DoubleClick += (s, e) => { if (elegido.Length > 0) { Corre("play"); } };
+        Controls.Add(lista);
+
+        estado = Etiqueta("", 26, 316, 378, Tenue);
+
+        var play = Btn("play", "Reproducir", 26, 346, 122, 44);
+        var stop = Btn("pausa", "Pausa", 154, 346, 122, 44);
+        var det = Btn("salir", "Detener", 282, 346, 122, 44);
+        play.Click += (s, e) => Corre("play");
+        stop.Click += (s, e) => Corre("pausa");
+        det.Click += (s, e) => { Corre("detener"); sonando = ""; Refresca(); };
+
+        reloj = new System.Windows.Forms.Timer();
+        reloj.Interval = 1500;
+        reloj.Tick += (s, e) => Mueve();
+        reloj.Start();
+
+        Cargar();
+    }
+
+    string elegido {
+        get {
+            if (lista.SelectedIndex < 0) return "";
+            int p = lista.SelectedItem.ToString().IndexOf("   ·   ");
+            return p > 0 ? lista.SelectedItem.ToString().Substring(0, p) : lista.SelectedItem.ToString();
+        }
+    }
+
+    void Cargar() {
+        lista.BeginUpdate();
+        lista.Items.Clear();
+        foreach (var m in MiniJson.Lista(Pide("/api/reproductor?tipo=listar", "GET", null), "medios")) {
+            string n = m.ContainsKey("nombre") ? m["nombre"] : "";
+            if (n.Length == 0) continue;
+            string tam = m.ContainsKey("tamano") ? MiniJson.Tamano(m["tamano"]) : "";
+            lista.Items.Add(tam.Length > 0 ? n + "   ·   " + tam : n);
+        }
+        lista.EndUpdate();
+        if (lista.Items.Count == 0) {
+            lista.Items.Add("No hay archivos de musica ni video en la PC.");
+            lista.Enabled = false;
+        }
+    }
+
+    void Corre(string que) {
+        if (que == "play" && elegido.Length == 0) { estado.Text = "Elige un archivo primero."; return; }
+        string ruta = "/api/reproductor?tipo=" + que;
+        if (que == "play") ruta += "&archivo=" + Uri.EscapeDataString(elegido);
+        var r = MiniJson.Objeto(Pide(ruta, "GET", null));
+        estado.Text = r.ContainsKey("mensaje") ? r["mensaje"]
+                    : (r.ContainsKey("error") ? r["error"] : "Listo");
+        if (que == "play") sonando = elegido;
+        Refresca();
+    }
+
+    // marca en la lista lo que esta sonando ahora
+    void Refresca() {
+        for (int i = 0; i < lista.Items.Count; i++) {
+            string t = lista.Items[i].ToString();
+            int p = t.IndexOf("   ·   ");
+            string n = p > 0 ? t.Substring(0, p) : t;
+            if (n == sonando && n.Length > 0 && t.IndexOf("sonando") < 0) {
+                // la collection de ListBox se cambia por indice, no hay SetItem
+                lista.Items[i] = n + "   ·   sonando";
+            }
+        }
+    }
+
+    // lleva el control al archivo que este sonando
+    void Mueve() {
+        var r = MiniJson.Objeto(Pide("/api/reproductor?tipo=estado", "GET", null));
+        if (r.Count == 0) return;
+        string arc = r.ContainsKey("archivo") ? r["archivo"] : "";
+        bool sona = r.ContainsKey("reproduciendo") && r["reproduciendo"] == "true";
+        if (sonando.Length > 0 && arc.Length > 0 && arc != sonando) { sonando = arc; Refresca(); }
+        if (sonando.Length > 0) {
+            string seg = "";
+            if (r.ContainsKey("posicion") && r.ContainsKey("duracion")) {
+                int po = int.TryParse(r["posicion"], out po) ? po : 0;
+                int du = int.TryParse(r["duracion"], out du) ? du : 0;
+                if (du > 0) seg = string.Format("{0:0}:{1:00} de {2:0}:{3:00}   ·   ", po / 60, po % 60, du / 60, du % 60);
+            }
+            estado.Text = seg + (sona ? "sonando" : "en pausa") + "   ·   " + sonando;
+        }
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e) {
+        if (reloj != null) { reloj.Stop(); reloj.Dispose(); }
+        base.OnFormClosed(e);
+    }
+}
+
+// ---------------- guiones: scripts guardados ------------------------
+class VentanaGuiones : Base {
+    ListBox lista;
+    TextBox editor, salida;
+    Label aviso;
+    string elegido = "";
+
+    public VentanaGuiones(Form padre) : base(460, 500, "Guiones") {
+        Etiqueta("SCRIPTS GUARDADOS", 26, 22, 240, Tenue, 7.5f);
+        Separador(26, 44, 408);
+
+        lista = new ListBox {
+            Location = new Point(26, 58), Size = new Size(160, 200),
+            BackColor = Color.FromArgb(19, 19, 22), ForeColor = Txt,
+            BorderStyle = BorderStyle.None, Font = new Font("Segoe UI", 9f), IntegralHeight = false
+        };
+        lista.SelectedIndexChanged += (s, e) => {
+            if (lista.SelectedIndex < 0) return;
+            elegido = lista.SelectedItem.ToString();
+            aviso.Text = elegido;
+            CargarContenido(elegido);
+        };
+        Controls.Add(lista);
+
+        Etiqueta("CONTENIDO", 202, 58, 200, Tenue, 7.5f);
+        editor = Caja(202, 78, 232, 180, false);
+        editor.Font = new Font("Consolas", 9f);
+
+        aviso = Etiqueta("elige un guion o escribe uno nuevo", 26, 266, 408, Tenue);
+
+        var guardar = Btn("codigo", "Guardar", 26, 296, 128, 44);
+        var correr = Btn("play", "Correr", 162, 296, 128, 44);
+        var borrar = Btn("salir", "Borrar", 298, 296, 136, 44);
+        guardar.Click += (s, e) => Guardar();
+        correr.Click += (s, e) => Correr();
+        borrar.Click += (s, e) => Borrar();
+
+        salida = Caja(26, 352, 408, 122, true);
+        salida.Font = new Font("Consolas", 8.5f);
+
+        Cargar();
+    }
+
+    void Cargar() {
+        lista.BeginUpdate();
+        lista.Items.Clear();
+        foreach (var g in MiniJson.Lista(Pide("/api/guiones", "GET", null), "guiones")) {
+            if (g.ContainsKey("nombre")) lista.Items.Add(g["nombre"]);
+        }
+        lista.EndUpdate();
+    }
+
+    void CargarContenido(string nombre) {
+        foreach (var g in MiniJson.Lista(Pide("/api/guiones", "GET", null), "guiones")) {
+            if (g.ContainsKey("nombre") && g["nombre"] == nombre) {
+                editor.Text = g.ContainsKey("contenido") ? g["contenido"] : "";
+                return;
+            }
+        }
+    }
+
+    void Guardar() {
+        string nombre = editor.Text.Trim().Length > 0 && elegido.Length == 0
+                        ? "sin nombre" : elegido;
+        if (nombre.Length == 0) { aviso.Text = "Escribe algo primero."; return; }
+        var r = MiniJson.Objeto(Pide("/api/guiones", "POST",
+            "{\"nombre\":\"" + Esc(nombre) + "\",\"contenido\":\"" + Esc(editor.Text) + "\"}"));
+        aviso.Text = r.ContainsKey("mensaje") ? r["mensaje"] : (r.ContainsKey("error") ? r["error"] : "Guardado");
+        Cargar();
+    }
+
+    void Correr() {
+        if (elegido.Length == 0) { aviso.Text = "Elige un guion."; return; }
+        var r = MiniJson.Objeto(Pide("/api/guiones?tipo=ejecutar&nombre=" + Uri.EscapeDataString(elegido), "GET", null));
+        salida.Text = r.ContainsKey("salida") ? r["salida"] : (r.ContainsKey("error") ? r["error"] : "(sin salida)");
+    }
+
+    void Borrar() {
+        if (elegido.Length == 0) return;
+        var r = MiniJson.Objeto(Pide("/api/guiones", "POST",
+            "{\"accion\":\"borrar\",\"nombre\":\"" + Esc(elegido) + "\"}"));
+        aviso.Text = r.ContainsKey("mensaje") ? r["mensaje"] : (r.ContainsKey("error") ? r["error"] : "");
+        elegido = "";
+        editor.Text = "";
+        salida.Text = "";
+        Cargar();
+    }
+}
+
+// ---------------- portapapeles compartido -------------------------
+class VentanaPapel : Base {
+    TextBox area, entrada;
+    Label aviso;
+
+    public VentanaPapel(Form padre) : base(410, 410, "Portapapeles") {
+        Etiqueta("EN LA PC", 26, 22, 200, Tenue, 7.5f);
+        Separador(26, 44, 358);
+        area = Caja(26, 58, 358, 140, true);
+
+        Etiqueta("ESCRIBE Y MANDA A LA PC", 26, 210, 300, Tenue, 7.5f);
+        entrada = Caja(26, 230, 358, 80, false);
+
+        aviso = Etiqueta("", 26, 318, 358, Tenue);
+
+        var traer = Btn("nota", "Traer", 26, 340, 170, 44);
+        var mandar = Btn("papel", "Mandar", 204, 340, 180, 44);
+        traer.Click += (s, e) => Traer();
+        mandar.Click += (s, e) => Mandar();
+
+        Traer();
+    }
+
+    void Traer() {
+        var r = MiniJson.Objeto(Pide("/api/portapapeles", "GET", null));
+        area.Text = r.ContainsKey("texto") ? r["texto"] : "(no se pudo leer)";
+        if (r.Count == 0) aviso.Text = "El servidor no responde.";
+    }
+
+    void Mandar() {
+        var r = MiniJson.Objeto(Pide("/api/portapapeles", "POST", entrada.Text));
+        aviso.Text = r.ContainsKey("mensaje") ? r["mensaje"] : (r.ContainsKey("error") ? r["error"] : "Listo");
+        Traer();
+    }
+}
