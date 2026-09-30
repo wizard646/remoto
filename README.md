@@ -1,12 +1,34 @@
 <p align="center">
-  <img src="app/icono.png" width="96" alt="Remoto">
-  <h1>Remoto</h1>
+  <img src="app/icono.png" width="88" alt="Remoto">
+</p>
+
+<h1 align="center">Remoto</h1>
+
+<p align="center">
   <b>Tu computadora, desde el celular, por el WiFi de casa.</b><br>
   <sub>Sin internet. Sin cuentas. Sin cables. Sin instalar drivers.</sub>
 </p>
 
+```
+┌────────────────────────────┐        │  ┌──────────────────────────────────┐
+│ MI-PC                │        │  │ Remoto                           │
+│ 2 h 38 m · 23:00:45        │        │  │                                  │
+│                            │        │  │ MI-PC                      │
+│ RAM                        │        │  │                                  │
+│ 6.4 de 7.8 GB · 82 %       │        │  │ Celular: Redmi Note 13 Pro       │
+│ ████████████████░░░░       │        │  │           (192.168.1.77)      │
+│ DISCO                      │     ─── · │                                  │
+│ 196.2 de 224.4 GB · 87 %   │        │  │ Encendido                        │
+│ ██████████████████░░       │        │  │                                  │
+│ BATERIA                    │        │  │ ┌────┐ ┌────┐ ┌────┐             │
+│ 100 % · cargando           │        │  │ │ ♪  │ │ <> │ │ ▤  │             │
+└────────────────────────────┘        │  │ │Mus │ │Gui │ │Pap │             │
+                                      │  │ └────┘ └────┘ └────┘             │
+                                      │  └──────────────────────────────────┘
+```
+
 <p align="center">
-  <img src="app/captura-app.png" width="290" alt="La app de Remoto en el celular">
+  <img src="app/captura-app.png" width="270" alt="La app de Remoto en el celular">
 </p>
 
 ---
@@ -66,7 +88,16 @@ si se pasa.
 
 ## Se instala en dos pasos
 
-### En la computadora
+```
+   la computadora                          el celular
+   ──────────────                          ─────────
+   1.  cd servidor                        3.  abrir Remoto
+       montar.cmd                         4.  escribir 192.168.1.50
+   2.  anotar la direccion                        y la clave
+       y la clave que sale
+```
+
+### 1. En la computadora
 
 ```powershell
 cd servidor
@@ -74,12 +105,18 @@ montar.cmd
 ```
 
 Eso renombra los archivos, **compila y firma** `Remoto.exe`, **abre el puerto
-8080** en el firewall y te muestra la direccion y la clave para escribir en el
-celular.
+8080** en el firewall y te muestra la direccion y la clave:
+
+```
+  Remoto listo.
+  En el celular: http://192.168.1.50:8080
+  Clave: A7K2M9  (esta en clave.txt, se puede cambiar)
+  Abre Remoto.exe
+```
 
 No hay que instalar nada: el servidor es PowerShell, que ya viene en Windows.
 
-### En el celular
+### 2. En el celular
 
 ```bash
 cd app
@@ -108,6 +145,32 @@ Remoto lo parte en dos: un vigilante consulta lo lento **una sola vez** al
 arrancar, y despues cada 2 segundos solo lo que cambia rapido. El servidor
 solo lee ese archivo.
 
+```
+  lo lento, una vez          lo rapido, cada 2 s
+  ┌──────────────────┐       ┌──────────────────────┐
+  │ placa de red     │ ──┐   │ RAM                  │
+  │ USB              │   │   │ bateria              │
+  │ CPU y temperatura│   └──►│ disco                │
+  │ sistema operativo│       │ procesos             │
+  └──────────────────┘       └──────────┬───────────┘
+                                         │ cache.json
+                                         ▼
+                                   ┌──────────┐
+                                   │ servidor │  responde en 20 ms
+                                   └──────────┘
+```
+
+| Consulta en Windows | Cuanto tarda |
+|---|---|
+| `Get-PnpDevice` (Bluetooth) | 5 477 ms |
+| `Get-NetRoute` (la IP) | 4 382 ms |
+| `Get-NetAdapter` (la placa) | 4 100 ms |
+| `Get-NetConnectionProfile` | 1 957 ms |
+| `Win32_OperatingSystem` | 963 ms |
+
+Si eso se hiciera en cada pedido, con la app consultando cada 3 segundos, la
+computadora no responderia. Asi quedo:
+
 | | |
 |---|---|
 | **Respuesta** | 20 milisegundos |
@@ -116,11 +179,20 @@ solo lee ese archivo.
 | **Antes** | 22 segundos por pedido |
 
 Tambien usa `SendInput`, la API de Windows que sigue viva hoy, para que las
-flechas y las combinaciones como `Ctrl+C` lleguen de verdad.
+flechas y las combinaciones como `Ctrl+C` lleguen de verdad. La vieja
+`keybd_event` esta obsoleta y las descarta.
 
 ---
 
 ## Privacidad
+
+```
+  ✗  camara                      ✗  grabacion de pantalla
+  ✗  microfono                   ✗  datos que salen de tu casa
+  ✗  cuenta o registro            ✗  publicidad
+  ✓  clave en cada pedido         ✓  solo tu red WiFi
+  ✓  sin camara, sin micros       ✓  licencia MIT, leelo y cambialo
+```
 
 - **No sale de tu casa.** El servidor escucha en la red local y no abre puertos
   hacia internet por su cuenta.
@@ -128,8 +200,7 @@ flechas y las combinaciones como `Ctrl+C` lleguen de verdad.
 - **Sin camara, sin microfono, sin grabacion de pantalla.** No esta, y no se
   puede agregar. Eso es lo que distingue a una herramienta de control de un
   spyware.
-- **Sin cuentas, sin telemetria, sin publicidad.** Licencia MIT: leelo,
-  cambialo, vendelo.
+- **Sin cuentas, sin telemetria, sin publicidad.**
 
 `app/miapp.keystore` y `servidor/clave.txt` no estan en el repositorio, y a
 proposito.
