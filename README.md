@@ -1,47 +1,111 @@
 ﻿# Remoto
 
-Controla tu PC desde el celular Android, por el WiFi de casa.
+<p align="center">
+  <img src="app/icono.png" width="120" alt="Remoto">
+</p>
 
-![app](app/icono.png)
+<p align="center">
+  <b>Controla tu computadora desde el celular Android, por el WiFi de casa.</b>
+</p>
+
+<p align="center">
+  Sin internet. Sin cuentas. Sin cable.<br>
+  Todo pasa por tu red local y nada sale de tu casa.
+</p>
 
 ---
 
-## Que hay aqui
+## Que puedes hacer desde el celular
+
+| | |
+|---|---|
+| **Raton** | Mover, hacer clic derecho y rueda, con repeticion al mantener presionado |
+| **Teclado** | Teclas sueltas y combinaciones: `Ctrl+C`, `Ctrl+V`, `Alt+Tab`, `Win` |
+| **Volumen** | Subir, bajar y silencio |
+| **Portapapeles** | Copiar en la PC y traer al celular, en las dos direcciones |
+| **Archivos** | Mandar y bajar archivos de hasta 500 MB |
+| **Programas** | Abrir lo que tengas instalado, buscarlo por nombre y cerrarlo |
+| **Consola** | Guardar scripts con nombre y correrlos |
+| **Musica** | Reproducir, pausar y detener, sin abrir ninguna ventana en la PC |
+| **Energia** | Apagar, reiniciar, suspender, o programar un temporizador |
+| **Captura** | Ver la pantalla de la PC en el celular |
+
+Ademas ves la RAM, el disco, la bateria, la temperatura, los USB conectados
+y quien esta conectado a tu red.
+
+---
+
+## Como se ve
+
+<p align="center">
+  <img src="app/captura-app.png" width="300" alt="La app en el celular">
+</p>
+
+---
+
+## Instalarlo
+
+### En la computadora
+
+```powershell
+cd servidor
+montar.cmd
+```
+
+Eso renombra los archivos, compila `Remoto.exe`, lo firma, abre el puerto
+8080 en el firewall y te muestra la direccion para escribir en el celular.
+
+> **El antivirus lo borra.** Remoto manda teclas y clics a la computadora, y
+> eso se parece a un virus. Agrega la carpeta a las excepciones de Bitdefender
+> antes de instalar. El detalle esta en [COMO-INSTALAR.md](servidor/COMO-INSTALAR.md).
+
+### En el celular
+
+```bash
+cd app
+npm install
+npx expo start
+```
+
+O instala el APK ya compilado y escribe la direccion y la clave que te
+mostro la computadora.
+
+El celular y la PC deben estar en la misma red WiFi.
+
+---
+
+## Como esta hecho
 
 ```
 app/          la aplicacion del celular (React Native / Expo)
 servidor/     el programa que corre en la PC
 ```
 
----
+El servidor es PowerShell y no depende de nada instalado. Lo unico que
+necesita es Windows.
 
-## Como se usa
-
-**En la PC:**
-
-Opcion A, la facil — doble clic en `Remoto.exe` (si ya lo compilaste):
-
-- Sale una ventana con la direccion y la clave, la clave se copia con un clic
-- Boton **Iniciar** para arrancar, **Detener** para parar
-- Se minimiza a la bandeja del sistema y sigue corriendo
-- Clic derecho en el icono de la bandeja para el menu rapido
-
-Opcion B, desde el codigo — doble clic en `servidor/Transferir.bat`:
-
-1. Acepta el aviso de administrador
-2. Deja la ventana abierta. Ahi sale la direccion y la clave
-
-**En el celular:**
-
-1. Abre la app **Remoto**
-2. Escribe la direccion de la PC (ejemplo `192.168.1.50`) y la clave
-3. Una vez dentro, la direccion y clave quedan guardadas
-
-El celular y la PC deben estar en la misma red WiFi.
+**Por que el servidor va partido en dos.** Consultar la RAM, la placa de
+red y los dispositivos USB por WMI cuesta entre 4 y 18 segundos. Si el
+servidor hiciera eso en cada pedido, la app del celular se congelaba. Un
+vigilante separado lo consulta una vez al arrancar y despues solo lo que
+cambia rapido, asi que el servidor responde en **20 milisegundos**.
 
 ---
 
-## Que incluye
+## Seguridad
+
+- Clave de acceso obligatoria en cada pedido
+- El servidor solo escucha en la red local, nunca en internet
+- No hay camara, ni microfono, ni grabacion de pantalla
+- No se puede usar desde fuera de tu casa sin abrir un puerto en el
+  router, y el programa no lo hace por su cuenta
+
+`app/miapp.keystore` y `servidor/clave.txt` no estan en el repositorio,
+estan en `.gitignore` a proposito.
+
+---
+
+## Detalle de cada pantalla
 
 **Inicio** — RAM, disco, bateria y temperatura con avisos por color
 (blanco normal, ambar 75-90 %, rojo mas de 90 %). Volumen, Bluetooth,
