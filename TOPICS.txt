@@ -1,0 +1,12 @@
+# Topics para pegar en https://github.com/wizard646/remoto
+remote-control
+android
+windows
+powershell
+react-native
+expo
+home-automation
+wifi
+remote-desktop
+self-hosted
+dotnet
