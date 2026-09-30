@@ -840,6 +840,9 @@ const s = StyleSheet.create({
 
   caja: { backgroundColor: C.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.line, color: C.dim, fontSize: 13, lineHeight: 19 },
   cajaT: { color: C.faint, fontSize: 10, fontWeight: '600', letterSpacing: 1, marginBottom: 5 },
+  // el nombre de lo que esta sonando. faltaba este estilo y se veia
+  // con la letra del theme, sin color ni tamano
+  cajaTxt: { color: C.txt, fontSize: 14, fontWeight: '500' },
   salida: { color: C.dim, fontSize: 12, fontFamily: 'monospace', lineHeight: 17 },
 
   panel: { height: 250, backgroundColor: C.card, borderRadius: 20, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },

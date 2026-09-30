@@ -192,15 +192,16 @@ class Formulario : Form {
     static Color Tenue { get { return Color.FromArgb(138, 138, 146); } }
 
     PictureBox logo;
-    Label lblNombre, lblIp, lblClave, lblEstado, lblCelular;
+    Label lblNombre, lblIp, lblClave, lblEstado, lblCelular, lblPista;
     CheckBox chkInicio;
-    Panel linea;
-    Timer timer;
+    Panel linea, tarjeta;
+    Timer timer, timerCopiado;
     NotifyIcon icono;
     Process servidorProc;
-    Boton btnPrincipal, btnCarpeta;
+    Boton btnPrincipal, btnCarpeta, btnCopiar;
     bool cerrando = false, estabaVivo = false;
     DateTime ultimoCelular = DateTime.MinValue;
+    string ipActual = "", claveActual = "";
 
     public Formulario() {
         Text = "Remoto";
@@ -241,37 +242,52 @@ class Formulario : Form {
         // ---- datos ---------------------------------------------------
         lblNombre = new Label {
             ForeColor = Tenue, AutoSize = true, Font = new Font("Segoe UI", 8.5f),
-            Location = new Point(31, 112), BackColor = Color.Transparent
+            Location = new Point(31, 108), BackColor = Color.Transparent
         };
         Controls.Add(lblNombre);
 
-        Controls.Add(new Label {
-            Text = "EN EL CELULAR", ForeColor = Color.FromArgb(100, 100, 108), AutoSize = true,
-            Font = new Font("Segoe UI", 7.5f), Location = new Point(32, 141), BackColor = Color.Transparent
+        // tarjeta con la direccion y la clave. las dos se copian con un
+        // clic, que es lo que mas molesta al pasar los datos al celular
+        tarjeta = new Panel {
+            BackColor = Color.FromArgb(20, 20, 24),
+            Location = new Point(26, 134), Size = new Size(318, 104)
+        };
+        Controls.Add(tarjeta);
+        Controls.SetChildIndex(tarjeta, 0);
+
+        tarjeta.Controls.Add(new Label {
+            Text = "EN EL CELULAR", ForeColor = Color.FromArgb(96, 96, 104), AutoSize = true,
+            Font = new Font("Segoe UI", 7.5f), Location = new Point(14, 12), BackColor = Color.Transparent
         });
 
-        lblIp = new Label {
-            ForeColor = Txt, AutoSize = true, Font = new Font("Consolas", 11f),
-            Location = new Point(31, 157), BackColor = Color.Transparent
-        };
-        Controls.Add(lblIp);
+        lblIp = Copiable(14, 30, 200, new Font("Consolas", 12.5f), Txt);
+        tarjeta.Controls.Add(lblIp);
 
-        lblClave = new Label {
-            ForeColor = Tenue, AutoSize = true, Font = new Font("Consolas", 11f),
-            Location = new Point(31, 188), BackColor = Color.Transparent
+        lblClave = Copiable(14, 58, 200, new Font("Consolas", 12.5f), Txt);
+        tarjeta.Controls.Add(lblClave);
+
+        lblPista = new Label {
+            Text = "tocá la dirección o la clave para copiarla",
+            ForeColor = Color.FromArgb(88, 88, 96), AutoSize = false,
+            Size = new Size(200, 16), Location = new Point(14, 82),
+            Font = new Font("Segoe UI", 8f), BackColor = Color.Transparent
         };
-        Controls.Add(lblClave);
+        tarjeta.Controls.Add(lblPista);
+
+        btnCopiar = new Boton { Ico = "papel", Rotulo = "Copiar", Location = new Point(224, 32), Size = new Size(80, 42) };
+        btnCopiar.Click += (s, e) => CopiarTodo();
+        tarjeta.Controls.Add(btnCopiar);
 
         lblEstado = new Label {
-            ForeColor = Tenue, AutoSize = false, Size = new Size(310, 18),
-            Location = new Point(31, 215), TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = Tenue, AutoSize = false, Size = new Size(314, 18),
+            Location = new Point(28, 246), TextAlign = ContentAlignment.MiddleLeft,
             Font = new Font("Segoe UI", 8.5f), BackColor = Color.Transparent
         };
         Controls.Add(lblEstado);
 
         lblCelular = new Label {
             ForeColor = Color.FromArgb(100, 100, 108), AutoSize = false,
-            Size = new Size(314, 20), Location = new Point(29, 237),
+            Size = new Size(314, 20), Location = new Point(28, 266),
             Font = new Font("Segoe UI", 8.8f), TextAlign = ContentAlignment.MiddleLeft,
             BackColor = Color.Transparent
         };
@@ -340,6 +356,49 @@ class Formulario : Form {
         return b;
     }
 
+    // ---------------- copiar la direccion y la clave ------------------
+    // pasar estos datos al celular es lo unico que hay que hacer a mano.
+    // con un clic se copian y se pegan, sin leerlos con lupa
+    Label Copiable(int x, int y, int w, Font f, Color c) {
+        var l = new Label {
+            ForeColor = c, AutoSize = false, Size = new Size(w, 22),
+            Location = new Point(x, y), TextAlign = ContentAlignment.MiddleLeft,
+            Font = f, Cursor = Cursors.Hand, BackColor = Color.Transparent
+        };
+        l.Click += (s, e) => {
+            if (l.Tag as string == null || (l.Tag as string).Length == 0) return;
+            Poner(l, (string)l.Tag);
+            try { Clipboard.SetText((string)l.Tag); } catch { }
+        };
+        return l;
+    }
+
+    // muestra "copiado" un segundo y vuelve al valor normal
+    void Poner(Label l, string texto) {
+        l.Text = "copiado";
+        l.ForeColor = Color.FromArgb(90, 200, 120);
+        if (timerCopiado == null) {
+            timerCopiado = new Timer { Interval = 1400 };
+            timerCopiado.Tick += (s, e) => { timerCopiado.Stop(); Refrescar(); };
+        }
+        timerCopiado.Stop();
+        timerCopiado.Start();
+    }
+
+    void CopiarTodo() {
+        if (ipActual.Length == 0) return;
+        string todo = ipActual + "\n" + claveActual;
+        try { Clipboard.SetText(todo); } catch { }
+        btnCopiar.Rotulo = "Listo";
+        btnCopiar.Invalidate();
+        if (timerCopiado == null) {
+            timerCopiado = new Timer { Interval = 1400 };
+            timerCopiado.Tick += (s, e) => { timerCopiado.Stop(); Refrescar(); };
+        }
+        timerCopiado.Stop();
+        timerCopiado.Start();
+    }
+
     // ---------------- el logo, embebido en el exe --------------------
     static Icon Logo(int lado) {
         try {
@@ -373,8 +432,16 @@ class Formulario : Form {
     // ---------------- refresco ---------------------------------------
     void Refrescar() {
         lblNombre.Text = "Equipo: " + Environment.MachineName;
-        lblIp.Text = "http://" + IpLocal() + ":8080";
-        try { lblClave.Text = "clave  " + File.ReadAllText(CLAVE).Trim(); } catch { lblClave.Text = "clave  ?"; }
+
+        // guardamos los valores aparte para poder copiarlos con un clic
+        string ip = IpLocal();
+        string clave = "?";
+        try { clave = File.ReadAllText(CLAVE).Trim(); } catch { }
+        if (ip != ipActual) { ipActual = ip; lblIp.Tag = ip; }
+        if (clave != claveActual) { claveActual = clave; lblClave.Tag = clave; }
+        lblIp.Text = ip;
+        lblClave.Text = clave;
+        if (btnCopiar.Rotulo != "Copiar") { btnCopiar.Rotulo = "Copiar"; btnCopiar.Invalidate(); }
 
         bool vivo = Vivo();
         if (estabaVivo && !vivo && !cerrando) { Arrancar(); vivo = Vivo(); }

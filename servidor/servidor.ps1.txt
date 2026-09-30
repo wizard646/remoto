@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'SilentlyContinue'
+﻿$ErrorActionPreference = 'SilentlyContinue'
 $RAIZ    = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $PUERTO  = 8080
 $CARPETA = Join-Path $env:USERPROFILE 'Descargas\Desde-Celular'
@@ -196,6 +196,9 @@ function Leer-Request($stream) {
 
 function Get-BodyTexto($req) {
     if ($null -eq $req.Body) { return '' }
+    # los pedidos normales pesan unos bytes. uno de 5 MB es un guion
+    # mal formado o alguien probando, y leerlo lo vuelve lento
+    if ($req.Body.Length -gt 1MB) { return '' }
     return [System.Text.Encoding]::UTF8.GetString($req.Body)
 }
 
@@ -466,6 +469,13 @@ function Invocar-Abrir([string]$que) {
   if (-not $que) { return @{ error = 'No se dijo que abrir' } }
   Add-Registro "ABRIR" $que
   if ($que -match '^https?://') { Start-Process $que; return @{ ok = $true; mensaje = "Abriendo $que" } }
+
+  # sin esto, algo como ..\..\windows\system32\cmd pasaba los filtros de
+  # nombre y llegaba hasta Start-Process como si fuera un programa
+  if ($que -match '[\\/:*?"<>|]') {
+    return @{ error = 'Ese nombre no es valido' }
+  }
+  if ($que.Length -gt 80) { return @{ error = 'Ese nombre es muy largo' } }
 
   $todos = @(Get-Atajos)
   $c1 = $todos | Where-Object { $_.BaseName -ieq $que } | Select-Object -First 1
@@ -989,6 +999,10 @@ function Add-Guion([string]$nombre, [string]$contenido) {
         return @{ error = 'Falta nombre o contenido' }
     }
     $n = $nombre.Trim()
+    # sin esto un nombre de 5 MB se guardaba tal cual en guiones.json
+    # y despues la app recibia un json imposible de mostrar
+    if ($n.Length -gt 60) { return @{ error = 'El nombre es muy largo (maximo 60 letras)' } }
+    if ($contenido.Length -gt 200000) { return @{ error = 'El guion es muy largo (maximo 200 KB)' } }
     $arr = @()
     foreach ($g in @(Get-Guiones)) { if ($g.nombre -ne $n) { $arr += ,$g } }
     $arr += ,([ordered]@{
@@ -1145,7 +1159,20 @@ while ($true) {
       '^POST /api/raton/mover$' {
         $d = Get-CuerpoJson $cuerpo
         if ($null -eq $d) { Responder $stream @{ error = 'Datos no validos' } 400 'Bad Request'; $cerrar.Invoke(); break }
-        Responder $stream (Mover-Raton ([int]$d.dx) ([int]$d.dy)); $cerrar.Invoke(); break
+        # sin esta comprobacion, un dx que no sea numero tiraba una
+        # excepcion y el pedido terminaba en un 500 sin explicacion
+        $dx = 0; $dy = 0
+        if (-not [int]::TryParse([string]$d.dx, [ref]$dx) -or
+            -not [int]::TryParse([string]$d.dy, [ref]$dy)) {
+          Responder $stream @{ error = 'El movimiento tiene que ser un numero' } 400 'Bad Request'
+          $cerrar.Invoke(); break
+        }
+        # un salto de mas de 5000 px no viene de un dedo humano
+        if ([Math]::Abs($dx) -gt 5000 -or [Math]::Abs($dy) -gt 5000) {
+          $dx = [Math]::Max(-5000, [Math]::Min(5000, $dx))
+          $dy = [Math]::Max(-5000, [Math]::Min(5000, $dy))
+        }
+        Responder $stream (Mover-Raton $dx $dy); $cerrar.Invoke(); break
       }
       '^POST /api/raton/click$' {
         Add-Registro "RATON" ("clic " + $cuerpo.Trim())
