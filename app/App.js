@@ -584,8 +584,9 @@ function Teclado({ ip, setIp, clave, setClave, entrando, onEntrar, children }) {
 
         <Text style={s.et}>DIRECCION DE LA PC</Text>
         <View style={[s.campo, s.campoNum, foco === 'ip' && s.campoOn]}>
-          <Text style={s.campoNumT} numberOfLines={1}>{ip || '192.168.1.50'}</Text>
+          <Text style={s.campoNumT} numberOfLines={1}>{ip || '192.168.1.10'}</Text>
         </View>
+        <Text style={s.ayuda}>la que dice la ventana de Remoto en la computadora</Text>
 
         <Text style={[s.et, { marginTop: 18 }]}>CLAVE</Text>
         <View style={[s.campo, s.campoNum, foco === 'clave' && s.campoOn]}>
@@ -635,9 +636,12 @@ function Teclado({ ip, setIp, clave, setClave, entrando, onEntrar, children }) {
 
 // teclado pequeno para cambiar la clave
 function TecladoMini({ valor, onChange }) {
-  const [letras, setLetras] = useState(true);
+  // mostrarLetras es el interruptor y tecladoLetras el arreglo. antes
+  // los dos se llamaban letras y JavaScript tiraba "Identifier 'letras'
+  // has already been declared", que deja la app en pantalla en blanco
+  const [mostrarLetras, setMostrarLetras] = useState(true);
   const nums = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '·', '0', '⌫'];
-  const letras = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+  const tecladoLetras = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
     'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '-', '_'];
   const pulsa = t => {
     if (t === '⌫') return onChange(valor.slice(0, -1));
@@ -651,7 +655,7 @@ function TecladoMini({ valor, onChange }) {
       </View>
       <View style={{ height: 10 }} />
       <View style={s.pad}>
-        {(letras ? letras : nums).map(n => (
+        {(mostrarLetras ? tecladoLetras : nums).map(n => (
           <TouchableOpacity key={n} style={s.teclaPad} onPress={() => pulsa(n)} activeOpacity={0.6}>
             <Text style={s.teclaPadT}>{n}</Text>
           </TouchableOpacity>
@@ -659,11 +663,11 @@ function TecladoMini({ valor, onChange }) {
       </View>
       <View style={{ height: 8 }} />
       <View style={s.filaT}>
-        <TouchableOpacity onPress={() => setLetras(!letras)} style={[s.pastilla, letras && s.pastillaOn]}>
-          <Text style={[s.pastillaT, letras && s.pastillaTOn]}>ABC</Text>
+        <TouchableOpacity onPress={() => setMostrarLetras(true)} style={[s.pastilla, mostrarLetras && s.pastillaOn]}>
+          <Text style={[s.pastillaT, mostrarLetras && s.pastillaTOn]}>ABC</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setLetras(false)} style={[s.pastilla, !letras && s.pastillaOn]}>
-          <Text style={[s.pastillaT, !letras && s.pastillaTOn]}>123</Text>
+        <TouchableOpacity onPress={() => setMostrarLetras(false)} style={[s.pastilla, !mostrarLetras && s.pastillaOn]}>
+          <Text style={[s.pastillaT, !mostrarLetras && s.pastillaTOn]}>123</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -821,6 +825,8 @@ const s = StyleSheet.create({
   marcaU: { fontSize: 12, color: C.dim, marginBottom: 3 },
   rayo: { fontSize: 13, color: C.verde },
   pista: { height: 3, backgroundColor: C.soft, borderRadius: 2, overflow: 'hidden' },
+  // texto de ayuda chiquito debajo de un campo
+  ayuda: { color: C.dim, fontSize: 11.5, marginTop: 7, marginBottom: -2, lineHeight: 15 },
   relleno: { height: 3, borderRadius: 2 },
 
   rejilla: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
