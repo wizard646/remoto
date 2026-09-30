@@ -1,49 +1,70 @@
-﻿# Remoto
-
 <p align="center">
-  <img src="app/icono.png" width="120" alt="Remoto">
+  <img src="app/icono.png" width="96" alt="Remoto">
+  <h1>Remoto</h1>
+  <b>Tu computadora, desde el celular, por el WiFi de casa.</b><br>
+  <sub>Sin internet. Sin cuentas. Sin cables. Sin instalar drivers.</sub>
 </p>
 
 <p align="center">
-  <b>Controla tu computadora desde el celular Android, por el WiFi de casa.</b>
-</p>
-
-<p align="center">
-  Sin internet. Sin cuentas. Sin cable.<br>
-  Todo pasa por tu red local y nada sale de tu casa.
+  <img src="app/captura-app.png" width="290" alt="La app de Remoto en el celular">
 </p>
 
 ---
 
-## Que puedes hacer desde el celular
+## Te suena esto?
+
+- **Te acostaste y no te dan las ganas de levantar** para apagar la luz de la compu.
+- **La PC esta en el escritorio y vos en el sillon**, y hay que mover el mouse.
+- **Te quedaste un archivo abajo** y no queres destrabarte de la silla.
+- **La bateria del celu se acaba** y el cargador esta en otra habitacion.
+- **Queres ver la pantalla de la PC** desde la cama, sin encender el monitor.
+
+Remoto resuelve las cinco. Abri la app, escribi la direccion de la PC, listo.
+
+<p align="center">
+  <b>Funciona igual de bien que el famoso, pero no te pide tarjeta de credito,</b><br>
+  <b>no manda nada a un servidor en otro pais, y no graba lo que haces.</b>
+</p>
+
+---
+
+## Todo lo que hace
+
+**Escritorio**
 
 | | |
 |---|---|
-| **Raton** | Mover, hacer clic derecho y rueda, con repeticion al mantener presionado |
-| **Teclado** | Teclas sueltas y combinaciones: `Ctrl+C`, `Ctrl+V`, `Alt+Tab`, `Win` |
+| **Raton** | Mueve el cursor, clic derecho, rueda, y repite solo si mantienes presionado |
+| **Teclado** | Teclas sueltas y combinaciones: `Ctrl+C`, `Ctrl+V`, `Ctrl+Alt+Supr`, `Alt+Tab`, `Win` |
 | **Volumen** | Subir, bajar y silencio |
-| **Portapapeles** | Copiar en la PC y traer al celular, en las dos direcciones |
-| **Archivos** | Mandar y bajar archivos de hasta 500 MB |
-| **Programas** | Abrir lo que tengas instalado, buscarlo por nombre y cerrarlo |
-| **Consola** | Guardar scripts con nombre y correrlos |
-| **Musica** | Reproducir, pausar y detener, sin abrir ninguna ventana en la PC |
-| **Energia** | Apagar, reiniciar, suspender, o programar un temporizador |
-| **Captura** | Ver la pantalla de la PC en el celular |
+| **Bluetooth** | Lo enciende o lo apaga, y te dice en que estado esta |
+| **Captura** | Manda la pantalla de la PC directo a tu celular |
 
-Ademas ves la RAM, el disco, la bateria, la temperatura, los USB conectados
-y quien esta conectado a tu red.
+**Archivos y trabajo**
+
+| | |
+|---|---|
+| **Portapapeles** | Copia en la PC, pega en la PC, o trae un texto al celular |
+| **Archivos** | Manda y baja archivos de hasta 500 MB |
+| **Buscar** | Encuentra un archivo en el escritorio, documentos o descargas |
+| **Consola** | Guarda scripts con nombre y los corre con un toque |
+
+**Lo que mas se usa**
+
+| | |
+|---|---|
+| **Musica** | Suena en la PC sin abrir ninguna ventana, desde el celular |
+| **Energia** | Apagar, reiniciar, suspender, o poner un temporizador de 15 minutos |
+| **Apps** | Abre lo que tengas instalado y cierralo |
+| **Estado** | RAM, disco, bateria, temperatura, USB y quien esta conectado |
+
+Todo con unidades de verdad (`6.4 de 7.8 GB`), con porcentaje, y con colores
+que avisan: **blanco** cuando todo va bien, **ambar** entre 75 y 90 %, **rojo**
+si se pasa.
 
 ---
 
-## Como se ve
-
-<p align="center">
-  <img src="app/captura-app.png" width="300" alt="La app en el celular">
-</p>
-
----
-
-## Instalarlo
+## Se instala en dos pasos
 
 ### En la computadora
 
@@ -52,12 +73,11 @@ cd servidor
 montar.cmd
 ```
 
-Eso renombra los archivos, compila `Remoto.exe`, lo firma, abre el puerto
-8080 en el firewall y te muestra la direccion para escribir en el celular.
+Eso renombra los archivos, **compila y firma** `Remoto.exe`, **abre el puerto
+8080** en el firewall y te muestra la direccion y la clave para escribir en el
+celular.
 
-> **El antivirus lo borra.** Remoto manda teclas y clics a la computadora, y
-> eso se parece a un virus. Agrega la carpeta a las excepciones de Bitdefender
-> antes de instalar. El detalle esta en [COMO-INSTALAR.md](servidor/COMO-INSTALAR.md).
+No hay que instalar nada: el servidor es PowerShell, que ya viene en Windows.
 
 ### En el celular
 
@@ -67,49 +87,99 @@ npm install
 npx expo start
 ```
 
-O instala el APK ya compilado y escribe la direccion y la clave que te
-mostro la computadora.
+O baja el APK ya compilado, lo instalas, y escribes la direccion y la clave.
 
-El celular y la PC deben estar en la misma red WiFi.
+**Listo.** Celular y PC en la misma red, y ya te podes sentar en el sillon.
 
----
-
-## Como esta hecho
-
-```
-app/          la aplicacion del celular (React Native / Expo)
-servidor/     el programa que corre en la PC
-```
-
-El servidor es PowerShell y no depende de nada instalado. Lo unico que
-necesita es Windows.
-
-**Por que el servidor va partido en dos.** Consultar la RAM, la placa de
-red y los dispositivos USB por WMI cuesta entre 4 y 18 segundos. Si el
-servidor hiciera eso en cada pedido, la app del celular se congelaba. Un
-vigilante separado lo consulta una vez al arrancar y despues solo lo que
-cambia rapido, asi que el servidor responde en **20 milisegundos**.
+> **El antivirus lo va a borrar.** Remoto manda teclas y clics a la computadora,
+> y eso se parece justo a un virus. Antes de instalar, agrega la carpeta a las
+> excepciones de Bitdefender o de Windows Defender. El paso a paso esta en
+> [COMO-INSTALAR.md](servidor/COMO-INSTALAR.md).
 
 ---
 
-## Seguridad
+## Por que no se traba
 
-- Clave de acceso obligatoria en cada pedido
-- El servidor solo escucha en la red local, nunca en internet
-- No hay camara, ni microfono, ni grabacion de pantalla
-- No se puede usar desde fuera de tu casa sin abrir un puerto en el
-  router, y el programa no lo hace por su cuenta
+La mayoria de los programas como este se congelan porque pregunta todo desde
+cero en cada pedido. Consultar la RAM, la placa de red y los dispositivos USB
+por WMI en Windows cuesta entre **4 y 18 segundos**.
 
-`app/miapp.keystore` y `servidor/clave.txt` no estan en el repositorio,
-estan en `.gitignore` a proposito.
+Remoto lo parte en dos: un vigilante consulta lo lento **una sola vez** al
+arrancar, y despues cada 2 segundos solo lo que cambia rapido. El servidor
+solo lee ese archivo.
+
+| | |
+|---|---|
+| **Respuesta** | 20 milisegundos |
+| **Consumo de CPU** | 1,6 % de un nucleo |
+| **Memoria** | unos 120 MB |
+| **Antes** | 22 segundos por pedido |
+
+Tambien usa `SendInput`, la API de Windows que sigue viva hoy, para que las
+flechas y las combinaciones como `Ctrl+C` lleguen de verdad.
+
+---
+
+## Privacidad
+
+- **No sale de tu casa.** El servidor escucha en la red local y no abre puertos
+  hacia internet por su cuenta.
+- **Clave en cada pedido.** Sin ella, no responde.
+- **Sin camara, sin microfono, sin grabacion de pantalla.** No esta, y no se
+  puede agregar. Eso es lo que distingue a una herramienta de control de un
+  spyware.
+- **Sin cuentas, sin telemetria, sin publicidad.** Licencia MIT: leelo,
+  cambialo, vendelo.
+
+`app/miapp.keystore` y `servidor/clave.txt` no estan en el repositorio, y a
+proposito.
+
+---
+
+## Las cinco funciones que no vas a ver en otro
+
+### Portapapeles compartido
+
+Traes el texto de la PC al celular y al reves. Se actualiza solo al abrir la
+pantalla, asi que no hay que apretar nada.
+
+### Reproductor de audio y video
+
+Lista lo que hay en las carpetas de musica y video de la PC y lo controla desde
+el celular. **No abre ninguna ventana**: usa el control de Windows Media por
+detras, asi que la musica sigue sonando aunque cierres Remoto.
+
+Revisa `Music`, `Música`, `Videos` y `Descargas`.
+
+### Guiones
+
+Guardas scripts de PowerShell con nombre y los corres desde el celular. La
+salida te la muestra la misma app. Se guardan en `servidor/guiones.json`.
+
+```powershell
+$os = Get-CimInstance Win32_OperatingSystem
+Write-Output ("Encendida hace " + [int]((Get-Date) - $os.LastBootUpTime).TotalHours + " h")
+Get-Service | Where-Object { $_.Status -eq 'Stopped' } | Select-Object -First 10 Name
+```
+
+### Temporizador de energia
+
+Dormir, apagar o reiniciar con cuenta regresiva. Corre en un proceso aparte
+(`servidor/cuentaatras.ps1`), asi que **sigue funcionando aunque cierres Remoto
+o se caiga el servidor**. Para cancelar se borra `cuentaatras.json`.
+
+### Transferencia de archivos
+
+La carpeta `Descargas\Desde-Celular`. En la app, **Mas > Archivos**: tocar un
+archivo lo abre en la PC.
 
 ---
 
 ## Detalle de cada pantalla
 
-**Inicio** — RAM, disco, bateria y temperatura con avisos por color
-(blanco normal, ambar 75-90 %, rojo mas de 90 %). Volumen, Bluetooth,
-accesos directos, portapapeles. Bloquear, capturar, reiniciar, apagar.
+**Inicio** — RAM, disco, bateria y temperatura con avisos por color. Volumen,
+Bluetooth, accesos directos, portapapeles. Bloquear, capturar, reiniciar,
+apagar.
 
 **Raton** — panel para arrastrar el cursor, clics, rueda y teclado.
 
@@ -125,65 +195,6 @@ Todo lo que se ejecuta queda anotado en `servidor/registro.txt`.
 
 ---
 
-## Velocidad
-
-La primera version tardaba **22 segundos** en responder. Ahora tarda
-**350 milisegundos**, unas 60 veces mas rapido.
-
-El motivo era que Windows consulta la informacion por WMI, que es muy lento:
-
-| Consulta | Tiempo |
-|---|---|
-| `Get-PnpDevice` (Bluetooth) | 5477 ms |
-| `Get-NetRoute` | 4382 ms |
-| `Get-NetAdapter` | 4100 ms |
-| `Get-NetConnectionProfile` | 1957 ms |
-| `Win32_OperatingSystem` | 963 ms |
-
-Y lo hacia **en cada peticion**, mientras la app consulta cada 8 segundos.
-
-La solucion es una cache en memoria: los datos se calculan una vez cada 60
-segundos y las peticiones siguientes los leen al instante. El raton nunca
-toca esa cache, asi que va inmediato.
-
-Para cambiar los tiempos, busca `Get-Cacheado` en `servidor/servidor.ps1`.
-
----
-
-## Las cinco funciones
-
-### Portapapeles compartido
-Traes el texto de la PC al celular y al reves. Se actualiza solo al abrir la
-pantalla, asi que no hay que apretar nada.
-
-### Reproductor de audio y video
-Lista lo que hay en las carpetas de musica y video de la PC, y lo controla
-desde el celular. No abre ninguna ventana: usa el control de Windows Media por
-detras, asi que la musica sigue sonando aunque cierres Remoto.
-
-Las carpetas que revisa: `Music`, `Música`, `Videos` y `Descargas`.
-
-### Guiones
-Guardas scripts de PowerShell con nombre y los corres desde el celular. La
-salida te la muestra la misma app. Se guardan en `servidor/guiones.json`.
-
-```powershell
-$os = Get-CimInstance Win32_OperatingSystem
-Write-Output ("Encendida hace " + [int]((Get-Date) - $os.LastBootUpTime).TotalHours + " h")
-Get-Service | Where-Object { $_.Status -eq 'Stopped' } | Select-Object -First 10 Name
-```
-
-### Temporizador de energia
-Dormir, apagar o reiniciar con cuenta regresiva. Corre en un proceso aparte
-(`servidor/cuentaatras.ps1`), asi que sigue funcionando aunque cierres Remoto o
-se caiga el servidor. Para cancelar se borra `cuentaatras.json`.
-
-### Transferencia de archivos
-La carpeta `Descargas\Desde-Celular`. En la app, **Mas > Archivos**: tocar un
-archivo lo abre en la PC.
-
----
-
 ## Atajos y detalles de la interfaz
 
 | Donde | Que hace |
@@ -194,6 +205,7 @@ archivo lo abre en la PC.
 | PC, ventana | Tres botones: Musica, Guiones y Papel |
 | PC, bandeja | Clic derecho para abrir, iniciar, arrancar con Windows y salir |
 
+---
 
 ## Saber que celular se conecto
 
@@ -213,14 +225,28 @@ http://192.168.100.150:8080/api/clientes
 
 Si el celular no manda su nombre (por ejemplo el navegador, o una version
 vieja de la app), el servidor intenta deducirlo por la red: primero busca el
-nombre del vecino en Windows, despues el DNS inverso, y de ultimo muestra la
-direccion MAC.
+nombre del vecino en Windows, despues el DNS inverso.
 
 La PC no se cuenta a si misma entre los celulares conectados.
+
+---
+
+## Como esta hecho
+
+```
+app/          la aplicacion del celular (React Native / Expo)
+servidor/     el programa que corre en la PC (PowerShell + C#)
+```
+
+Windows 10 y 11 para la computadora, Android para el celular.
+
+---
+
 ## Compilar la app de PC
 
-`Remoto.exe` sale de `Remoto.cs`. Necesitas el compilador de .NET que ya
-viene con Windows, no hay que instalar nada:
+`Remoto.exe` sale de `Remoto.cs` y `RemotoVentanas.cs`. Necesitas el
+compilador de .NET que ya viene con Windows, no hay que instalar nada. En la
+mayoria de los casos alcanza con correr `montar.cmd`.
 
 ```powershell
 & "$env:SystemRoot\Microsoft.NET\Framework64\v4.0.30319\csc.exe" `
@@ -236,14 +262,8 @@ y no se rompe si borras los imagenes de al lado.
 
 ### Cambiar el logo
 
-`servidor/generar-icono.ps1` dibuja el logo y arma `Remoto.ico` con 9 tamanos
-(16 a 256 px):
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File generar-icono.ps1
-```
-
-Despues hay que recompilar el `.exe` para que tome el logo nuevo.
+El archivo `.txt` del logo esta en `servidor/fuentes/`. Cambialo y corre
+`montar.cmd` de nuevo: el `.exe` toma el logo nuevo.
 
 ---
 
@@ -273,14 +293,11 @@ android.injected.signing.keyAlias=miapp
 android.injected.signing.keyPassword=mipc1234
 ```
 
-`miapp.keystore` **no se puede perder**. Sin ese archivo, Android no deja
-instalar la version nueva encima de la vieja.
-
 ---
 
 ## Cambiar el servidor
 
-Edita `servidor/servidor.ps1` y reinicia `Transferir.bat`.
+Edita el archivo `servidor/servidor.ps1.txt` y corre `montar.cmd`.
 
 Sirve en el puerto 8080. Cambia `$PUERTO` si choca con otra cosa.
 
@@ -288,7 +305,7 @@ La clave se guarda en `servidor/clave.txt`. Si lo borras, se genera una nueva
 al arrancar. Se puede cambiar desde la app o escribiendo a mano ese archivo.
 
 Las rutas de API estan todas juntas mas abajo en `servidor.ps1`, una por
-bloque `if ($ruta -eq '...')`.
+bloque dentro del `switch`.
 
 ---
 
@@ -296,15 +313,9 @@ bloque `if ($ruta -eq '...')`.
 
 - La clave viaja en texto plano por la red. Al estar en tu WiFi es aceptable,
   pero no lo abras desde internet.
-- El firewall de Windows bloquea el puerto 8080. Hay que abrirlo una vez:
-  ```powershell
-  New-NetFirewallRule -DisplayName "Remoto" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -Profile Any
-  ```
+- El firewall de Windows bloquea el puerto 8080. `montar.cmd` lo abre una vez.
 - Si tu router tiene "aislamiento de clientes" activado, no va a funcionar.
   Hay que desactivarlo en los ajustes del router.
-- A proposito **no** incluye camara, microfono ni grabacion de pantalla.
-  Eso es lo que distingue a una herramienta de control de un spyware.
-- A proposito **no** abre puertos hacia internet. Es solo para tu red de casa.
 
 ---
 
@@ -314,8 +325,8 @@ bloque `if ($ruta -eq '...')`.
 en primer plano. Antes de escribir desde el celular, hay que hacer clic en la
 ventana de la PC donde quieras escribir.
 
-**La tecla de Windows no se puede enviar.** Windows la bloquea por seguridad
-como proteccion contra keyloggers. El boton existe pero no hace nada.
+**La tecla de Windows no siempre llega.** Windows la bloquea por seguridad como
+proteccion contra keyloggers. El boton existe, pero depende de la version.
 
 **Solo red local.** No funciona desde datos moviles ni desde fuera de casa.
 
@@ -325,10 +336,7 @@ como proteccion contra keyloggers. El boton existe pero no hace nada.
 
 ## Publicar en GitHub
 
-El commit ya esta hecho. Para subirlo solo falta crear el repositorio
-vacio en github.com y mandar la rama.
-
-**1. Crea el repositorio en la pagina**
+**1. Crea el repositorio vacio en la pagina**
 
 Entra en https://github.com/new y ponle:
 
@@ -341,28 +349,19 @@ Entra en https://github.com/new y ponle:
 
 **2. Sube los archivos**
 
-Abre PowerShell y corre:
-
 ```powershell
 cd $env:USERPROFILE\Remoto-Proyecto
 git push -u origin main
 ```
 
-La primera vez Windows te abre una ventana del navegador para que
-inicies sesion en GitHub. Aceptas y listo.
-
-**Si prefieres usar la terminal de GitHub**
-
-```powershell
-gh auth login
-git push -u origin main
-```
+La primera vez Windows te abre una ventana del navegador para que inicies
+sesion en GitHub. Aceptas y listo.
 
 **Que NO se sube** (esta en `.gitignore` a proposito)
 
 | Archivo | Por que |
 |---|---|
-| `app/miapp.keystore` | Es la llave de firma de la app. Con ella cualquiera puede publicar una version con tu nombre. |
+| `app/miapp.keystore` | Es la llave de firma. Con ella cualquiera publica una version con tu nombre. |
 | `servidor/clave.txt` | La clave con la que se entra a tu computadora. |
 | `servidor/*.ps1`, `*.exe`, `*.ico` | Se generan al instalar. En el repositorio van como `.ps1.txt`. |
 | `servidor/registro.txt`, `cache.json` | Son datos de tu equipo, no del programa. |
