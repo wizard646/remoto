@@ -1,0 +1,514 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using Microsoft.Win32;
+
+// Estos datos son los que ve la gente al hacer clic derecho en el
+// archivo. Un programa con nombre, version y descripcion se ve como un
+// programa publicado. Uno sin nada se ve como un ejecutable anonimo,
+// que es justo lo que hace sospechar a un antivirus.
+[assembly: AssemblyTitle("Remoto")]
+[assembly: AssemblyDescription("Controla la computadora desde el celular Android por la red local")]
+[assembly: AssemblyProduct("Remoto")]
+[assembly: AssemblyCompany("Remoto")]
+[assembly: AssemblyCopyright("Software libre bajo licencia MIT")]
+[assembly: AssemblyTrademark("")]
+[assembly: AssemblyCulture("")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+
+
+public class Remoto {
+    [STAThread]
+    static void Main() {
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        Application.Run(new Formulario());
+    }
+}
+
+// los iconos se dibujan con lineas: no dependen de ninguna fuente
+// de iconos de Windows, asi que se ven igual en cualquier equipo
+static class Iconos {
+    static GraphicsPath Redondeado(int x, int y, int w, int h, int r) {
+        if (r > w / 2) r = w / 2;
+        if (r > h / 2) r = h / 2;
+        var p = new GraphicsPath();
+        p.AddArc(x, y, r, r, 180, 90);
+        p.AddArc(x + w - r, y, r, r, 270, 90);
+        p.AddArc(x + w - r, y + h - r, r, r, 0, 90);
+        p.AddArc(x, y + h - r, r, r, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
+
+    public static void Dibuja(Graphics g, string cual, int cx, int cy, int s, Color c, Color fondo) {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float l = Math.Max(1.6f, s * 0.085f);
+        using (var p = new Pen(c, l) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+        using (var b = new SolidBrush(c)) {
+            float m = s * 0.5f;
+            int q = (int)(s * 0.18f);
+            switch (cual) {
+                case "play":
+                    g.FillPolygon(b, new Point[] {
+                        new Point((int)(cx - m * 0.55f), (int)(cy - m)),
+                        new Point((int)(cx - m * 0.55f), (int)(cy + m)),
+                        new Point((int)(cx + m), (int)cy) });
+                    break;
+                case "pausa":
+                    g.FillRectangle(b, cx - (int)(m * 0.7f), cy - (int)m, q, (int)(m * 2));
+                    g.FillRectangle(b, cx + (int)(m * 0.15f), cy - (int)m, q, (int)(m * 2));
+                    break;
+                case "nota":
+                    g.FillEllipse(b, cx - (int)(m * 1.1f), cy + (int)(m * 0.3f), q + (int)(m * 0.5f), q + (int)(m * 0.5f));
+                    g.DrawLine(p, cx + (int)(m * 0.4f), cy + (int)(m * 0.55f), cx + (int)(m * 0.4f), cy - (int)(m * 0.9f));
+                    g.DrawLine(p, cx + (int)(m * 0.4f), cy - (int)(m * 0.9f), cx + (int)(m * 1.1f), cy - (int)(m * 0.5f));
+                    break;
+                case "papel":
+                    using (var pa = Redondeado(cx - (int)m, cy - (int)m, (int)(m * 2), (int)(m * 2), q))
+                        g.DrawPath(p, pa);
+                    g.DrawLine(p, cx - (int)(m * 0.5f), cy - (int)(m * 0.35f), cx + (int)(m * 0.5f), cy - (int)(m * 0.35f));
+                    g.DrawLine(p, cx - (int)(m * 0.5f), cy + (int)(m * 0.05f), cx + (int)(m * 0.5f), cy + (int)(m * 0.05f));
+                    g.DrawLine(p, cx - (int)(m * 0.5f), cy + (int)(m * 0.45f), cx + (int)(m * 0.2f), cy + (int)(m * 0.45f));
+                    break;
+                case "carpeta":
+                    g.DrawLine(p, cx - (int)m, cy - (int)(m * 0.6f), cx - (int)(m * 0.2f), cy - (int)(m * 0.6f));
+                    g.DrawLine(p, cx - (int)(m * 0.2f), cy - (int)(m * 0.6f), cx - (int)(m * 0.05f), cy - (int)(m * 0.25f));
+                    g.DrawLine(p, cx - (int)(m * 0.05f), cy - (int)(m * 0.25f), cx + (int)m, cy - (int)(m * 0.25f));
+                    g.DrawLine(p, cx - (int)m, cy - (int)(m * 0.6f), cx - (int)m, cy + (int)m);
+                    g.DrawLine(p, cx + (int)m, cy - (int)(m * 0.25f), cx + (int)m, cy + (int)m);
+                    g.DrawLine(p, cx - (int)m, cy + (int)m, cx + (int)m, cy + (int)m);
+                    break;
+                case "codigo":
+                    g.DrawLine(p, cx - (int)(m * 0.55f), cy - (int)m, cx - (int)m, cy);
+                    g.DrawLine(p, cx - (int)m, cy, cx - (int)(m * 0.55f), cy + (int)m);
+                    g.DrawLine(p, cx + (int)(m * 0.55f), cy - (int)m, cx + (int)m, cy);
+                    g.DrawLine(p, cx + (int)m, cy, cx + (int)(m * 0.55f), cy + (int)m);
+                    g.DrawLine(p, cx + (int)(m * 0.15f), cy - (int)(m * 0.9f), cx - (int)(m * 0.15f), cy + (int)(m * 0.9f));
+                    break;
+                case "luna":
+                    g.FillEllipse(b, cx - (int)m, cy - (int)m, (int)(m * 2), (int)(m * 2));
+                    using (var b2 = new SolidBrush(fondo))
+                        g.FillEllipse(b2, cx - (int)(m * 0.1f), cy - (int)(m * 1.2f), (int)(m * 2), (int)(m * 2));
+                    break;
+                case "candado":
+                    g.DrawArc(p, cx - (int)(m * 0.6f), cy - (int)m, (int)(m * 1.2f), (int)(m * 1.2f), 180, 180);
+                    using (var pa = Redondeado(cx - (int)m, cy - (int)(m * 0.2f), (int)(m * 2), (int)(m * 1.2f), q / 2))
+                        g.DrawPath(p, pa);
+                    break;
+                case "encender":
+                    g.DrawArc(p, cx - (int)(m * 0.9f), cy - (int)(m * 0.9f), (int)(m * 1.8f), (int)(m * 1.8f), -60, 300);
+                    g.DrawLine(p, cx, cy - (int)(m * 1.15f), cx, cy - (int)(m * 0.35f));
+                    break;
+                case "reiniciar":
+                    g.DrawArc(p, cx - (int)(m * 0.9f), cy - (int)(m * 0.9f), (int)(m * 1.8f), (int)(m * 1.8f), 40, 280);
+                    g.FillPolygon(b, new Point[] {
+                        new Point(cx + (int)(m * 0.5f), cy - (int)(m * 1.15f)),
+                        new Point(cx + (int)(m * 1.1f), cy - (int)(m * 0.5f)),
+                        new Point(cx + (int)(m * 0.25f), cy - (int)(m * 0.4f)) });
+                    break;
+                case "salir":
+                    g.DrawLine(p, cx - (int)(m * 0.7f), cy - (int)(m * 0.7f), cx + (int)(m * 0.7f), cy + (int)(m * 0.7f));
+                    g.DrawLine(p, cx + (int)(m * 0.7f), cy - (int)(m * 0.7f), cx - (int)(m * 0.7f), cy + (int)(m * 0.7f));
+                    break;
+            }
+        }
+    }
+}
+
+class Boton : Control {
+    public string Ico = "", Rotulo = "";
+    Color tinte = Color.FromArgb(245, 245, 247);
+    bool encima = false;
+
+    public Boton() {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                 ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        BackColor = Color.FromArgb(24, 24, 28);
+        Cursor = Cursors.Hand;
+        Font = new Font("Segoe UI", 8.5f);
+        Size = new Size(112, 40);
+    }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        var g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : BackColor);
+        var r = new Rectangle(1, 1, Width - 2, Height - 2);
+        int rad = 11;
+        var ruta = new GraphicsPath();
+        ruta.AddArc(r.X, r.Y, rad, rad, 180, 90);
+        ruta.AddArc(r.Right - rad, r.Y, rad, rad, 270, 90);
+        ruta.AddArc(r.Right - rad, r.Bottom - rad, rad, rad, 0, 90);
+        ruta.AddArc(r.X, r.Bottom - rad, rad, rad, 90, 90);
+        ruta.CloseFigure();
+
+        bool luz = Enabled && encima;
+        using (var b = new SolidBrush(luz ? Color.FromArgb(34, 34, 40) : Color.FromArgb(24, 24, 28)))
+            g.FillPath(b, ruta);
+        using (var p = new Pen(luz ? Color.FromArgb(58, 58, 66) : Color.FromArgb(32, 32, 37)))
+            g.DrawPath(p, ruta);
+
+        Color c = Enabled ? tinte : Color.FromArgb(80, 80, 88);
+        var t = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        using (var b = new SolidBrush(c)) {
+            SizeF ts = g.MeasureString(Rotulo, Font);
+            if (ts.Width > Width - 40) {
+                // rotulo largo: icono solo y el texto al lado, chico
+                Iconos.Dibuja(g, Ico, 26, Height / 2, 22, c, BackColor);
+                g.DrawString(Rotulo, Font, b, new RectangleF(42, 0, Width - 46, Height), t);
+            } else {
+                Iconos.Dibuja(g, Ico, 22, Height / 2, 22, c, BackColor);
+                g.DrawString(Rotulo, Font, b, new RectangleF(40, 0, Width - 44, Height), t);
+            }
+        }
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { encima = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { encima = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
+}
+
+class Formulario : Form {
+    static string RAIZ { get { return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); } }
+    static string SERVIDOR { get { return Path.Combine(RAIZ, "servidor.ps1"); } }
+    static string CLAVE { get { return Path.Combine(RAIZ, "clave.txt"); } }
+    static string CARPETA {
+        get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Descargas", "Desde-Celular"); }
+    }
+    const string CLAVE_INICIO = @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+    static Color Fondo { get { return Color.FromArgb(11, 11, 12); } }
+    static Color Txt { get { return Color.FromArgb(245, 245, 247); } }
+    static Color Tenue { get { return Color.FromArgb(138, 138, 146); } }
+
+    PictureBox logo;
+    Label lblNombre, lblIp, lblClave, lblEstado, lblCelular;
+    CheckBox chkInicio;
+    Panel linea;
+    Timer timer;
+    NotifyIcon icono;
+    Process servidorProc;
+    Boton btnPrincipal, btnCarpeta;
+    bool cerrando = false, estabaVivo = false;
+    DateTime ultimoCelular = DateTime.MinValue;
+
+    public Formulario() {
+        Text = "Remoto";
+        ClientSize = new Size(370, 446);
+        StartPosition = FormStartPosition.CenterScreen;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        BackColor = Fondo;
+        ForeColor = Txt;
+        Font = new Font("Segoe UI", 9.5f);
+        try { Icon = Logo(256); } catch { }
+
+        // ---- cabecera ------------------------------------------------
+        logo = new PictureBox {
+            Location = new Point(28, 20), Size = new Size(50, 50),
+            SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent
+        };
+        try {
+            using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("logo-remoto.png")) {
+                if (s != null) logo.Image = new Bitmap(s);
+            }
+        } catch { }
+        Controls.Add(logo);
+
+        Controls.Add(new Label {
+            Text = "Remoto", Font = new Font("Segoe UI", 20f, FontStyle.Bold),
+            ForeColor = Txt, AutoSize = true, Location = new Point(90, 24), BackColor = Color.Transparent
+        });
+        Controls.Add(new Label {
+            Text = "Control de la PC desde el celular",
+            ForeColor = Tenue, AutoSize = true, Font = new Font("Segoe UI", 8.5f),
+            Location = new Point(92, 62), BackColor = Color.Transparent
+        });
+
+        linea = new Panel { BackColor = Color.FromArgb(28, 28, 32), Size = new Size(314, 1), Location = new Point(28, 88) };
+        Controls.Add(linea);
+
+        // ---- datos ---------------------------------------------------
+        lblNombre = new Label {
+            ForeColor = Tenue, AutoSize = true, Font = new Font("Segoe UI", 8.5f),
+            Location = new Point(31, 112), BackColor = Color.Transparent
+        };
+        Controls.Add(lblNombre);
+
+        Controls.Add(new Label {
+            Text = "EN EL CELULAR", ForeColor = Color.FromArgb(100, 100, 108), AutoSize = true,
+            Font = new Font("Segoe UI", 7.5f), Location = new Point(32, 141), BackColor = Color.Transparent
+        });
+
+        lblIp = new Label {
+            ForeColor = Txt, AutoSize = true, Font = new Font("Consolas", 11f),
+            Location = new Point(31, 157), BackColor = Color.Transparent
+        };
+        Controls.Add(lblIp);
+
+        lblClave = new Label {
+            ForeColor = Tenue, AutoSize = true, Font = new Font("Consolas", 11f),
+            Location = new Point(31, 188), BackColor = Color.Transparent
+        };
+        Controls.Add(lblClave);
+
+        lblEstado = new Label {
+            ForeColor = Tenue, AutoSize = false, Size = new Size(310, 18),
+            Location = new Point(31, 215), TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font("Segoe UI", 8.5f), BackColor = Color.Transparent
+        };
+        Controls.Add(lblEstado);
+
+        lblCelular = new Label {
+            ForeColor = Color.FromArgb(100, 100, 108), AutoSize = false,
+            Size = new Size(314, 20), Location = new Point(29, 237),
+            Font = new Font("Segoe UI", 8.8f), TextAlign = ContentAlignment.MiddleLeft,
+            BackColor = Color.Transparent
+        };
+        Controls.Add(lblCelular);
+
+        // ---- las tres ventanas nuevas --------------------------------
+        var b1 = Chapa("nota", 31, 264, 100, 40, "Musica");
+        b1.Click += (s, e) => { using (var v = new Reproductor(this)) v.ShowDialog(this); };
+        var b2 = Chapa("codigo", 137, 264, 100, 40, "Guiones");
+        b2.Click += (s, e) => { using (var v = new VentanaGuiones(this)) v.ShowDialog(this); };
+        var b3 = Chapa("papel", 243, 264, 100, 40, "Papel");
+        b3.Click += (s, e) => { using (var v = new VentanaPapel(this)) v.ShowDialog(this); };
+
+        // ---- principal -----------------------------------------------
+        btnPrincipal = Chapa("encender", 31, 314, 312, 44, "Iniciar");
+        btnPrincipal.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
+        btnPrincipal.Click += (s, e) => { if (Vivo()) Detener(); else Arrancar(); };
+
+        btnCarpeta = Chapa("carpeta", 31, 366, 312, 36, "Abrir carpeta de archivos");
+        btnCarpeta.Click += (s, e) => {
+            try {
+                if (!Directory.Exists(CARPETA)) Directory.CreateDirectory(CARPETA);
+                Process.Start("explorer.exe", CARPETA);
+            } catch { }
+        };
+
+        // ---- pie -----------------------------------------------------
+        chkInicio = new CheckBox {
+            Text = "Arrancar con Windows", AutoSize = true, FlatStyle = FlatStyle.Flat,
+            Location = new Point(31, 412), ForeColor = Tenue, Cursor = Cursors.Hand,
+            Font = new Font("Segoe UI", 8.5f), BackColor = Color.Transparent
+        };
+        chkInicio.Checked = LeoInicio();
+        chkInicio.ForeColor = chkInicio.Checked ? Txt : Tenue;
+        chkInicio.CheckedChanged += (s, e) => {
+            if (EscriboInicio(chkInicio.Checked)) {
+                chkInicio.ForeColor = chkInicio.Checked ? Txt : Tenue;
+                lblEstado.Text = chkInicio.Checked
+                    ? "Se abrira solo al prender la PC." : "Ya no se abre solo al prender la PC.";
+            }
+        };
+        Controls.Add(chkInicio);
+
+        // ---- bandeja -------------------------------------------------
+        icono = new NotifyIcon { Text = "Remoto", Visible = true };
+        try { icono.Icon = Logo(20); } catch { }
+        icono.ContextMenuStrip = new ContextMenuStrip();
+        icono.ContextMenuStrip.Items.Add("Abrir", null, (s, e) => { Visible = true; WindowState = FormWindowState.Normal; Activate(); });
+        icono.ContextMenuStrip.Items.Add("Iniciar/Detener", null, (s, e) => { if (Vivo()) Detener(); else Arrancar(); });
+        icono.ContextMenuStrip.Items.Add("Arrancar con Windows", null, (s, e) => chkInicio.Checked = !chkInicio.Checked);
+        icono.ContextMenuStrip.Items.Add(new ToolStripSeparator());
+        icono.ContextMenuStrip.Items.Add("Salir", null, (s, e) => { cerrando = true; CerrarTodo(); });
+        icono.DoubleClick += (s, e) => { Visible = true; WindowState = FormWindowState.Normal; Activate(); };
+
+        timer = new Timer { Interval = 1500 };
+        timer.Tick += (s, e) => Refrescar();
+        timer.Start();
+
+        Refrescar();
+        if (!Vivo()) Arrancar();
+    }
+
+    Boton Chapa(string ico, int x, int y, int w, int h, string rotulo) {
+        var b = new Boton { Ico = ico, Rotulo = rotulo, Location = new Point(x, y), Size = new Size(w, h) };
+        Controls.Add(b);
+        return b;
+    }
+
+    // ---------------- el logo, embebido en el exe --------------------
+    static Icon Logo(int lado) {
+        try {
+            using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("Remoto.ico")) {
+                if (s != null) return new Icon(s, lado, lado);
+            }
+        } catch { }
+        return SystemIcons.Application;
+    }
+
+    string RutaExe() { return "\"" + Assembly.GetExecutingAssembly().Location + "\""; }
+
+    bool LeoInicio() {
+        try {
+            using (var k = Registry.CurrentUser.OpenSubKey(CLAVE_INICIO))
+                if (k != null) return (k.GetValue("Remoto") as string) == RutaExe();
+        } catch { }
+        return false;
+    }
+
+    bool EscriboInicio(bool activar) {
+        try {
+            using (var k = Registry.CurrentUser.CreateSubKey(CLAVE_INICIO)) {
+                if (activar) k.SetValue("Remoto", RutaExe());
+                else k.DeleteValue("Remoto", false);
+            }
+            return true;
+        } catch { return false; }
+    }
+
+    // ---------------- refresco ---------------------------------------
+    void Refrescar() {
+        lblNombre.Text = "Equipo: " + Environment.MachineName;
+        lblIp.Text = "http://" + IpLocal() + ":8080";
+        try { lblClave.Text = "clave  " + File.ReadAllText(CLAVE).Trim(); } catch { lblClave.Text = "clave  ?"; }
+
+        bool vivo = Vivo();
+        if (estabaVivo && !vivo && !cerrando) { Arrancar(); vivo = Vivo(); }
+        estabaVivo = vivo;
+
+        btnPrincipal.Rotulo = vivo ? "Detener" : "Iniciar";
+        btnPrincipal.Ico = vivo ? "salir" : "encender";
+        btnPrincipal.Invalidate();
+        lblEstado.Text = vivo ? "Encendido. Abre la app Remoto en tu celular." : "Detenido. Se esta levantando...";
+        lblEstado.ForeColor = vivo ? Tenue : Color.FromArgb(255, 90, 82);
+
+        if ((DateTime.Now - ultimoCelular).TotalSeconds > 3) { ultimoCelular = DateTime.Now; Cliente(); }
+    }
+
+    void Cliente() {
+        string t = "Celular:  sin conectar";
+        var j = Pide("/api/clientes");
+        if (j != null) {
+            var l = MiniJson.Clientes(j);
+            if (l != null && l.Count > 0) {
+                // gana el que se movio hace menos tiempo
+                Dictionary<string, string> p = l[0];
+                foreach (var d in l) {
+                    int a = 999999, b = 999999;
+                    int.TryParse(d.ContainsKey("hace") ? d["hace"] : "", out a);
+                    int.TryParse(p.ContainsKey("hace") ? p["hace"] : "", out b);
+                    if (a < b) p = d;
+                }
+                string nom = p.ContainsKey("nombre") ? p["nombre"] : "";
+                string dir = p.ContainsKey("ip") ? p["ip"] : "";
+                if (string.IsNullOrWhiteSpace(nom)) nom = "Celular";
+                bool viva = p.ContainsKey("activa") && p["activa"] == "true";
+                t = "Celular:  " + nom + "   " + dir;
+                if (!viva) t = "Celular:  sin actividad";
+            }
+        }
+        if (lblCelular.Text != t) lblCelular.Text = t;
+    }
+
+    // ---------------- red y proceso -----------------------------------
+    string IpLocal() {
+        List<string> otras = new List<string>();
+        try {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces()) {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
+                string nom = ni.Name.ToLower();
+                if (nom.Contains("virtual") || nom.Contains("vmware") || nom.Contains("bluetooth")) continue;
+                bool sale = ni.GetIPProperties().GatewayAddresses.Count > 0;
+                foreach (var ua in ni.GetIPProperties().UnicastAddresses) {
+                    if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    if (IPAddress.IsLoopback(ua.Address)) continue;
+                    if (ua.Address.ToString().StartsWith("169.254.")) continue;
+                    if (sale) return ua.Address.ToString();
+                    otras.Add(ua.Address.ToString());
+                }
+            }
+        } catch { }
+        return otras.Count > 0 ? otras[0] : "?";
+    }
+
+    bool Vivo() {
+        try {
+            var c = new TcpClient();
+            var ar = c.BeginConnect("127.0.0.1", 8080, null, null);
+            bool ok = ar.AsyncWaitHandle.WaitOne(400, false) && c.Connected;
+            c.Close();
+            return ok;
+        } catch { return false; }
+    }
+
+    void Arrancar() {
+        try {
+            var psi = new ProcessStartInfo("powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + SERVIDOR + "\"") {
+                CreateNoWindow = true, UseShellExecute = false,
+                WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = RAIZ
+            };
+            servidorProc = Process.Start(psi);
+        } catch { }
+    }
+
+    void Detener() {
+        try { if (servidorProc != null && !servidorProc.HasExited) { servidorProc.Kill(); servidorProc = null; } } catch { }
+        try {
+            var psi = new ProcessStartInfo("cmd.exe",
+                "/c for /f \"tokens=5\" %a in ('netstat -ano ^| findstr :8080 ^| findstr LISTENING') do taskkill /PID %a /F") {
+                CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden
+            };
+            Process.Start(psi).WaitForExit(6000);
+        } catch { }
+        estabaVivo = false;
+    }
+
+    // ---------------- pedirle cosas al servidor -----------------------
+    string Pide(string ruta) {
+        string clave = "";
+        try { clave = File.ReadAllText(CLAVE).Trim(); } catch { }
+        try {
+            var req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8080" + ruta);
+            req.Method = "GET";
+            req.Timeout = 6000;
+            req.ReadWriteTimeout = 6000;
+            req.Headers.Add("x-token", clave);
+            using (var r = (HttpWebResponse)req.GetResponse())
+            using (var sr = new StreamReader(r.GetResponseStream())) return sr.ReadToEnd();
+        } catch (WebException) {
+            // el servidor esta ocupado con otra peticion. no es un error:
+            // se reintenta en el siguiente refresh y no se anota nada
+            return null;
+        } catch (Exception ex) {
+            try { File.AppendAllText(Path.Combine(RAIZ, "error.log"),
+                     DateTime.Now.ToString("HH:mm:ss") + "  " + ex.Message + "\r\n"); } catch { }
+            return null;
+        }
+    }
+
+    void CerrarTodo() {
+        timer.Stop();
+        try { if (servidorProc != null && !servidorProc.HasExited) servidorProc.Kill(); } catch { }
+        icono.Visible = false;
+        Application.Exit();
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e) {
+        if (!cerrando && e.CloseReason == CloseReason.UserClosing) {
+            e.Cancel = true;
+            Hide();
+            icono.BalloonTipTitle = "Remoto";
+            icono.BalloonTipText = "Sigue funcionando en segundo plano.";
+            icono.ShowBalloonTip(2500);
+            return;
+        }
+        CerrarTodo();
+    }
+}

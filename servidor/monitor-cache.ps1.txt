@@ -1,0 +1,112 @@
+# ===================================================================
+#  VIGILANTE DE REMOTO
+#
+#  Consulta lo que cambia rapido y lo guarda en cache.json. El
+#  servidor solo lee ese archivo, y por eso responde en milisegundos.
+#
+#  Lo lento se consulta UNA vez al arrancar. Volver a preguntar por la
+#  placa de red o los dispositivos USB cuesta entre 4 y 11 segundos,
+#  y eso congelaba la aplicacion del celular.
+# ===================================================================
+$ErrorActionPreference = 'SilentlyContinue'
+$RAIZ    = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$ARCHIVO = Join-Path $RAIZ 'cache.json'
+
+function Escribe-Cache($datos) {
+    try {
+        $json = ConvertTo-Json -InputObject $datos -Depth 5 -Compress
+        $tmp = $ARCHIVO + '.tmp'
+        [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false))
+        # mover es atomico: el servidor nunca lee un archivo a medias
+        Move-Item -Path $tmp -Destination $ARCHIVO -Force
+    } catch { }
+}
+
+# --- lo que no cambia: se pregunta una vez -------------------------
+Write-Host ''
+Write-Host '  Remoto: preparando datos del sistema...' -ForegroundColor DarkGray
+
+$os    = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+$cs    = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+$dis   = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+$cpu   = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+
+$temp = $null
+$zt = Get-CimInstance -Namespace 'root/WMI' -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+if ($zt) { $temp = [math]::Round(($zt.CurrentTemperature / 10) - 273.15, 1) }
+
+# la ruta por defecto dice que adaptador es el de internet. Get-NetRoute
+# tarda 4 segundos, por eso se guarda y no se vuelve a preguntar.
+$ip = ''
+$ruta = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Sort-Object RouteMetric | Select-Object -First 1
+if ($ruta) {
+    $a = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias $ruta.InterfaceAlias -ErrorAction SilentlyContinue |
+         Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+         Select-Object -First 1
+    if ($a) { $ip = $a.IPAddress }
+}
+
+$adapt  = Get-NetAdapter -ErrorAction SilentlyContinue |
+          Where-Object { $_.Status -eq 'Up' -and $_.LinkSpeed } | Select-Object -First 1
+$perfil = Get-NetConnectionProfile -ErrorAction SilentlyContinue |
+          Where-Object { $_.IPv4Connectivity -eq 'Internet' } | Select-Object -First 1
+
+$extra = [ordered]@{
+    ip        = $ip
+    wifi      = if ($perfil) { [string]$perfil.Name } else { '' }
+    red       = if ($adapt) { [string]$adapt.Name } else { '' }
+    velocidad = if ($adapt) { [string]$adapt.LinkSpeed } else { '' }
+    temp      = $temp
+    nucleos   = if ($cpu) { [int]$cpu.NumberOfCores } else { 0 }
+    cpuNombre = if ($cpu) { [string]$cpu.Name } else { '' }
+}
+
+Write-Host ("  Remoto: ip " + $ip + "  red " + $extra.red) -ForegroundColor DarkGray
+
+$base = [ordered]@{
+    pc         = $env:COMPUTERNAME
+    usuario    = $env:USERNAME
+    sistema    = if ($os) { [string]$os.Caption } else { 'Windows' }
+    version    = if ($os) { [string]$os.Version } else { '' }
+    ramTotal   = if ($cs) { [int64]$cs.TotalPhysicalMemory } else { 0 }
+    discoTotal = if ($dis) { [int64]$dis.Size } else { 0 }
+    extra      = $extra
+}
+
+# --- lo que si cambia: se pregunta cada 2 segundos -----------------
+# 1 KB en bytes
+$KB = 1024
+
+while ($true) {
+    $t0 = Get-Date
+
+    $o = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue
+    $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+
+    $arriba = '0 h 0 m'
+    if ($o -and $o.LastBootUpTime) {
+        $dif = (Get-Date) - $o.LastBootUpTime
+        if ($dif.TotalDays -ge 1) { $arriba = "$([int]$dif.TotalDays) d $($dif.Hours) h" }
+        else { $arriba = "$($dif.Hours) h $($dif.Minutes) m" }
+    }
+
+    $datos = [ordered]@{}
+    foreach ($k in $base.Keys) { $datos[$k] = $base[$k] }
+    $datos['activo']      = $arriba
+    $datos['procesos']    = @(Get-Process -ErrorAction SilentlyContinue).Count
+    $datos['ramUsada']    = if ($o) { [int64](($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) * $KB) } else { 0 }
+    $datos['discoUsado']  = if ($d) { [int64]($d.Size - $d.FreeSpace) } else { 0 }
+    $datos['bateria']     = if ($b) { [int]$b.EstimatedChargeRemaining } else { -1 }
+    $datos['enCarga']     = if ($b) { ([int]$b.BatteryStatus -eq 2) } else { $false }
+    $datos['actualizado'] = (Get-Date).ToString('HH:mm:ss')
+
+    Escribe-Cache $datos
+
+    # se duerme lo que falte para llegar a 2 segundos exactos
+    $espera = 2000 - ((Get-Date) - $t0).TotalMilliseconds
+    if ($espera -lt 300) { $espera = 300 }
+    Start-Sleep -Milliseconds ([int]$espera)
+}
