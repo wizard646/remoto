@@ -2,28 +2,31 @@
 #  MONTA REMOTO
 #
 #  Bitdefender borra los .ps1 y los .exe. Este script los vuelve a
-#  crear a partir de las fuentes .txt de la carpeta fuentes\, que si
-#  sobreviven. Se puede correr las veces que haga falta.
+#  crear a partir de las fuentes .txt, que si sobreviven. Se puede
+#  correr las veces que haga falta.
 #
-#    powershell -ExecutionPolicy RemoteSigned -File montar.cmd
+#    doble clic en montar.cmd
 # ===================================================================
 $ErrorActionPreference = 'Stop'
 $RAIZ = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$FUENTES = Join-Path $RAIZ 'fuentes'
+# las fuentes viven al lado de este script, con .txt al final. tambien
+# se acepta una subcarpeta fuentes\, por si alguien la armo asi
+$FUENTES = if (Test-Path (Join-Path $RAIZ 'fuentes\servidor.txt')) { Join-Path $RAIZ 'fuentes' } else { $RAIZ }
 $DESTINO = $RAIZ
 
 Write-Host ''
 Write-Host '  Remoto: montando la instalacion...' -ForegroundColor Cyan
 
 # --- copiar de .txt a su archivo real ---
+# la clave es como viene el archivo en el repositorio, el valor es como
+# se llama cuando ya tiene su extension
 $pares = @{
-    'servidor.txt'      = 'servidor.ps1'
-    'monitor-cache.txt' = 'monitor-cache.ps1'
-    'cuentaatras.txt'   = 'cuentaatras.ps1'
-    'Remoto.cs.txt'     = 'Remoto.cs'
+    'servidor.ps1.txt'      = 'servidor.ps1'
+    'monitor-cache.ps1.txt' = 'monitor-cache.ps1'
+    'cuentaatras.ps1.txt'   = 'cuentaatras.ps1'
+    'Remoto.cs.txt'         = 'Remoto.cs'
     'RemotoVentanas.cs.txt' = 'RemotoVentanas.cs'
-    'index.html.txt'    = 'index.html'
-    'LEEME.txt.txt'     = 'LEEME.txt'
+    'index.html.txt'        = 'index.html'
 }
 
 foreach ($k in $pares.Keys) {
@@ -32,6 +35,9 @@ foreach ($k in $pares.Keys) {
     # variable no distinguen mayusculas. si se llamara $destino, pisaria
     # a $DESTINO y las rutas siguientes saldrian todas mal
     $a = Join-Path $DESTINO $pares[$k]
+    # si el archivo final ya esta, no hay nada que hacer. algunos vienen
+    # con su nombre correcto desde el repositorio
+    if (Test-Path $a) { continue }
     if (-not (Test-Path $origen)) {
         Write-Host ("  falta " + $k) -ForegroundColor Red
         continue
@@ -58,15 +64,15 @@ if (-not (Test-Path $clave)) {
     Write-Host ("  ok  clave.txt  (" + $nueva + ")") -ForegroundColor DarkGray
 }
 
-# --- el icono: se busca en esta maquina y, si no esta, se dibuja ---
+# --- el icono y el logo son opcionales ---
+# si no estan, el .exe igual compila, solo que sin icono propio. antes
+# esto era obligatorio y en una copia nueva del repositorio no habria
+# ningun .ico, asi que no se podia instalar
 $ico = Join-Path $DESTINO 'Remoto.ico'
 if (-not (Test-Path $ico)) {
-    $candidatos = @(
-        (Join-Path $DESTINO 'icono.ico'),
-        (Join-Path $FUENTES 'icono.ico'),
-        (Join-Path $FUENTES 'icono.png')
-    )
-    foreach ($cand in $candidatos) {
+    foreach ($cand in @((Join-Path $DESTINO 'icono.ico'),
+                        (Join-Path $FUENTES 'icono.ico'),
+                        (Join-Path (Split-Path $DESTINO -Parent) 'app\icono.ico'))) {
         if (Test-Path $cand) {
             try { Copy-Item $cand $ico -Force -ErrorAction Stop; Write-Host '  ok  Remoto.ico' -ForegroundColor DarkGray; break }
             catch { }
@@ -74,16 +80,14 @@ if (-not (Test-Path $ico)) {
     }
 }
 
-# --- el logo para recompilar ---
-$logo = Join-Path $FUENTES 'icono.png'
+$logo = Join-Path $DESTINO 'logo.png'
 if (-not (Test-Path $logo)) {
-    # en una maquina nueva el logo puede venir como app\icono.png al lado
     foreach ($cand in @((Join-Path $DESTINO 'icono.png'),
-                        (Join-Path (Split-Path $FUENTES -Parent) 'app\icono.png'))) {
+                        (Join-Path $FUENTES 'icono.png'),
+                        (Join-Path (Split-Path $DESTINO -Parent) 'app\icono.png'))) {
         if (Test-Path $cand) {
-            Copy-Item $cand $logo -Force
-            Write-Host '  ok  fuentes\icono.png' -ForegroundColor DarkGray
-            break
+            try { Copy-Item $cand $logo -Force -ErrorAction Stop; Write-Host '  ok  logo.png' -ForegroundColor DarkGray; break }
+            catch { }
         }
     }
 }
@@ -92,12 +96,22 @@ if (-not (Test-Path $logo)) {
 $exe = Join-Path $DESTINO 'Remoto.exe'
 $remotoCs = Join-Path $DESTINO 'Remoto.cs'
 $ventanas  = Join-Path $DESTINO 'RemotoVentanas.cs'
-if ((Test-Path $remotoCs) -and (Test-Path $ventanas) -and (Test-Path $ico)) {
+if ((Test-Path $remotoCs) -and (Test-Path $ventanas)) {
     $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     if (Test-Path $csc) {
         Write-Host '  compilando Remoto.exe...'
         $tmp = Join-Path $env:TEMP 'Remoto-firma.exe'
-        $cmd = '"{0}" /nologo /target:winexe /platform:anycpu /optimize+ /win32icon:"{1}" /out:"{2}" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /resource:"{3}",logo-remoto.png /resource:"{1}",Remoto.ico "{4}" "{5}"' -f $csc, $ico, $tmp, $logo, $remotoCs, $ventanas
+        # el icono y el logo solo se pasan si existen
+        $extras = ''
+        if (Test-Path $ico)  { $extras += ' /win32icon:"' + $ico + '" /resource:"' + $ico + '",Remoto.ico' }
+        if (Test-Path $logo) { $extras += ' /resource:"' + $logo + '",logo-remoto.png' }
+        # se arma con concatenacion y no con -f, porque los caminos
+        # traen llaves y comillas y se enredan
+        $cmd = '"' + $csc + '" /nologo /target:winexe /platform:anycpu /optimize+'
+        $cmd += ' /out:"' + $tmp + '"'
+        $cmd += ' /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll'
+        $cmd += $extras
+        $cmd += ' "' + $remotoCs + '" "' + $ventanas + '"'
         $salida = & cmd.exe /c $cmd 2>&1
         if (Test-Path $tmp) {
             try {
@@ -194,11 +208,18 @@ foreach ($n in @('servidor.ps1','monitor-cache.ps1','cuentaatras.ps1','clave.txt
     if (-not (Test-Path (Join-Path $DESTINO $n))) { $faltan += $n }
 }
 
+# la clave se lee del archivo, no se inventa en el mensaje: si el
+# archivo se borro se genera una nueva y hay que decir la real
+$laClave = ''
+try {
+    if (Test-Path $clave) { $laClave = ([System.IO.File]::ReadAllText($clave)).Trim() }
+} catch { }
+
 Write-Host ''
 if ($faltan.Count -eq 0) {
     Write-Host '  Remoto listo.' -ForegroundColor Green
     if ($ip) { Write-Host ("  En el celular: http://" + $ip + ":8080") -ForegroundColor Green }
-    Write-Host '  Clave: A7K2M9  (esta en clave.txt, se puede cambiar)' -ForegroundColor DarkGray
+    if ($laClave) { Write-Host ('  Clave: ' + $laClave + '   (esta en clave.txt, se puede cambiar)') -ForegroundColor DarkGray }
     Write-Host '  Abre Remoto.exe' -ForegroundColor Green
 } else {
     Write-Host ('  Falta: ' + ($faltan -join ', ')) -ForegroundColor Yellow

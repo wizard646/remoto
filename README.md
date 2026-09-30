@@ -138,20 +138,24 @@ si se pasa.
 
 ### 1. En la computadora
 
-```powershell
-cd servidor
-montar.cmd
+Clona o descarga el repositorio, y doble clic en:
+
+```
+servidor\montar.cmd
 ```
 
-Eso renombra los archivos, **compila y firma** `Remoto.exe`, **abre el puerto
-8080** en el firewall y te muestra la direccion y la clave:
+Eso renombra los archivos que vienen con `.txt`, **compila y firma**
+`Remoto.exe`, **abre el puerto 8080** en el firewall y te muestra la
+direccion y la clave:
 
 ```
   Remoto listo.
   En el celular: http://192.168.1.50:8080
-  Clave: A7K2M9  (esta en clave.txt, se puede cambiar)
+  Clave: MU9O2A   (esta en clave.txt, se puede cambiar)
   Abre Remoto.exe
 ```
+
+La clave se genera sola si todavia no existe. Si ya tenes una, la respeta.
 
 No hay que instalar nada: el servidor es PowerShell, que ya viene en Windows.
 
