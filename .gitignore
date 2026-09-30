@@ -34,6 +34,8 @@ servidor/guiones.json
 servidor/cuentaatras.json
 servidor/error.log
 
+descargas/*.apk
+
 # Windows
 Thumbs.db
 Desktop.ini
