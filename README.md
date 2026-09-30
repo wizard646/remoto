@@ -261,23 +261,55 @@ como proteccion contra keyloggers. El boton existe pero no hace nada.
 
 ## Publicar en GitHub
 
-Los archivos que no van al repositorio ya estan en `.gitignore`:
-`node_modules`, `app/android`, la llave de firma, la clave de acceso y el
-registro de actividad.
+El commit ya esta hecho. Para subirlo solo falta crear el repositorio
+vacio en github.com y mandar la rama.
+
+**1. Crea el repositorio en la pagina**
+
+Entra en https://github.com/new y ponle:
+
+| Campo | Valor |
+|---|---|
+| Owner | `wizard646` |
+| Nombre del repositorio | `remoto` |
+| Visibilidad | Publica o Privada, a tu gusto |
+| README | **no** marques nada |
+
+**2. Sube los archivos**
+
+Abre PowerShell y corre:
 
 ```powershell
-cd Remoto-Proyecto
-git init
-git add .
-git commit -m "Remoto: control de la PC desde el celular por WiFi"
+cd $env:USERPROFILE\Remoto-Proyecto
+git push -u origin main
 ```
 
-Despues crea el repositorio vacio en github.com y conectalo:
+La primera vez Windows te abre una ventana del navegador para que
+inicies sesion en GitHub. Aceptas y listo.
+
+**Si prefieres usar la terminal de GitHub**
 
 ```powershell
-git branch -M main
-git remote add origin https://github.com/TU-USUARIO/remoto.git
+gh auth login
 git push -u origin main
+```
+
+**Que NO se sube** (esta en `.gitignore` a proposito)
+
+| Archivo | Por que |
+|---|---|
+| `app/miapp.keystore` | Es la llave de firma de la app. Con ella cualquiera puede publicar una version con tu nombre. |
+| `servidor/clave.txt` | La clave con la que se entra a tu computadora. |
+| `servidor/*.ps1`, `*.exe`, `*.ico` | Se generan al instalar. En el repositorio van como `.ps1.txt`. |
+| `servidor/registro.txt`, `cache.json` | Son datos de tu equipo, no del programa. |
+
+**Subir un cambio mas adelante**
+
+```powershell
+cd $env:USERPROFILE\Remoto-Proyecto
+git add .
+git commit -m "que cambiaste"
+git push
 ```
 
 ---
