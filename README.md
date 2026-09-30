@@ -120,17 +120,49 @@ si se pasa.
 
 <p align="center">
   <a href="https://github.com/wizard646/remoto/releases/tag/v1.0.0">
-    <img alt="Bajar Remoto" src="https://img.shields.io/badge/%E2%86%97%20Bajar%20Remoto%201.0-34d399?style=for-the-badge&labelColor=1a1a1c">
+    <img alt="Remoto 1.0" src="https://img.shields.io/badge/%E2%86%97%20Remoto%201.0-34d399?style=for-the-badge&labelColor=1a1a1c">
   </a>
 </p>
 
 Son **4 pasos y 5 minutos**. La guia con cada pantalla esta en
 [COMO-INSTALAR.md](servidor/COMO-INSTALAR.md).
 
+<table>
+<tr>
+<td width="50%" align="center"><b>1. La computadora</b><br><sub>Windows 10 u 11</sub></td>
+<td width="50%" align="center"><b>2. El celular</b><br><sub>Android 5 o superior</sub></td>
+</tr>
+<tr>
+<td align="center">
+
+**Baja `Remoto-1.0.zip`**<br><br>
+Descomprimilo, doble clic en<br>
+`montar.cmd`, y después en<br>
+`Remoto.exe`<br><br>
+Te muestra la direccion y la clave
+
+</td>
+<td align="center">
+
+**Baja `Remoto-1.0.apk`**<br><br>
+Android te va a pedir permiso<br>
+para instalar apps de fuera de<br>
+Play: aceptalo en Ajustes<br><br>
+Escribi la direccion y la clave
+
+</td>
+</tr>
+</table>
+
+Todo esta en la **[pagina de descargas](https://github.com/wizard646/remoto/releases/tag/v1.0.0)**.
+
 ```
-  1.  Descargar el ZIP          3.  Abrir Remoto.exe y tocar Iniciar
+  1.  Bajar el ZIP y el APK    3.  Abrir Remoto.exe y tocar Iniciar
   2.  Doble clic en montar.cmd  4.  En el celular: la direccion y la clave
 ```
+
+> **El mismo WiFi.** Si el celular tiene datos moviles, no va a funcionar. Es
+> a propósito: Remoto no sale de tu red.
 
 <details>
 <summary><b>Prefiero compilarlo yo</b></summary>
@@ -166,6 +198,15 @@ npm install
 npx expo start
 ```
 
+O compilas el APK:
+
+```powershell
+cd app
+npx expo prebuild --platform android
+cd android
+gradlew.bat assembleRelease
+```
+
 </details>
 
 ### El antivirus lo va a borrar
@@ -187,6 +228,7 @@ va a borrar los archivos a los pocos segundos.
 |---|---|
 | El antivirus borró los `.ps1` | Volvé a agregar la excepción y corré `montar.cmd` otra vez |
 | La app dice que no entra | Celular y PC en el **mismo WiFi** |
+| Android no abre el APK | Ajustes → Apps → acceso especial → **Instalar apps desconocidas** |
 | `montar.cmd` no encuentra `montar.ps1` | Descomprimí el ZIP **entero**, no solo algunos archivos |
 | Windows avisa que el archivo está bloqueado | Clic derecho en el ZIP → Propiedades → **Desbloquear** |
 | No sabés la clave | Abrí `clave.txt`, adentro de la carpeta |
