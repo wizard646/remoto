@@ -9,23 +9,14 @@
   <sub>Sin internet. Sin cuentas. Sin cables. Sin instalar drivers.</sub>
 </p>
 
-<p align="center">
-  <a href="https://github.com/wizard646/remoto/blob/main/LICENSE"><img alt="Licencia" src="https://img.shields.io/badge/licencia-MIT-8b5cf6?style=flat-square&labelColor=1a1a1c"></a>
-  <a href="https://github.com/wizard646/remoto#privacidad"><img alt="Sin camara" src="https://img.shields.io/badge/sin%20c%C3%A1mara%20ni%20micr%C3%B3fono-34d399?style=flat-square&labelColor=1a1a1c"></a>
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078d6?style=flat-square&labelColor=1a1a1c">
-  <img alt="Android" src="https://img.shields.io/badge/Android-5.0%2B-3ddc84?style=flat-square&labelColor=1a1a1c">
-  <img alt="Respuesta" src="https://img.shields.io/badge/respuesta-20%20ms-8b5cf6?style=flat-square&labelColor=1a1a1c">
-  <img alt="Licencia" src="https://img.shields.io/badge/licencia-MIT-8b5cf6?style=flat-square&labelColor=1a1a1c">
-</p>
-
 ```
 ┌────────────────────────────┐        │  ┌──────────────────────────────────┐
-│ MI-PC                │        │  │ Remoto                           │
+│ MI-PC                      │        │  │ Remoto                           │
 │ 2 h 38 m · 23:00:45        │        │  │                                  │
-│                            │        │  │ MI-PC                      │
+│                            │        │  │ MI-PC                            │
 │ RAM                        │        │  │                                  │
 │ 6.4 de 7.8 GB · 82 %       │        │  │ Celular: Redmi Note 13 Pro       │
-│ ████████████████░░░░       │        │  │           (192.168.1.77)      │
+│ ████████████████░░░░       │        │  │           (192.168.1.77)         │
 │ DISCO                      │     ─── · │                                  │
 │ 196.2 de 224.4 GB · 87 %   │        │  │ Encendido                        │
 │ ██████████████████░░       │        │  │                                  │
@@ -125,23 +116,31 @@ si se pasa.
 
 ---
 
-## Se instala en dos pasos
+## Como se instala
+
+<p align="center">
+  <a href="https://github.com/wizard646/remoto/releases/tag/v1.0.0">
+    <img alt="Bajar Remoto" src="https://img.shields.io/badge/%E2%86%97%20Bajar%20Remoto%201.0-34d399?style=for-the-badge&labelColor=1a1a1c">
+  </a>
+</p>
+
+Son **4 pasos y 5 minutos**. La guia con cada pantalla esta en
+[COMO-INSTALAR.md](servidor/COMO-INSTALAR.md).
 
 ```
-   la computadora                          el celular
-   ──────────────                          ─────────
-   1.  cd servidor                        3.  abrir Remoto
-       montar.cmd                         4.  escribir 192.168.1.50
-   2.  anotar la direccion                        y la clave
-       y la clave que sale
+  1.  Descargar el ZIP          3.  Abrir Remoto.exe y tocar Iniciar
+  2.  Doble clic en montar.cmd  4.  En el celular: la direccion y la clave
 ```
 
-### 1. En la computadora
+<details>
+<summary><b>Prefiero compilarlo yo</b></summary>
 
-Clona o descarga el repositorio, y doble clic en:
+### En la computadora
 
-```
-servidor\montar.cmd
+```powershell
+git clone https://github.com/wizard646/remoto.git
+cd remoto\servidor
+montar.cmd
 ```
 
 Eso renombra los archivos que vienen con `.txt`, **compila y firma**
@@ -151,7 +150,7 @@ direccion y la clave:
 ```
   Remoto listo.
   En el celular: http://192.168.1.50:8080
-  Clave: MU9O2A   (esta en clave.txt, se puede cambiar)
+  Clave: A7K2M9   (esta en clave.txt, se puede cambiar)
   Abre Remoto.exe
 ```
 
@@ -159,7 +158,7 @@ La clave se genera sola si todavia no existe. Si ya tenes una, la respeta.
 
 No hay que instalar nada: el servidor es PowerShell, que ya viene en Windows.
 
-### 2. En el celular
+### En el celular
 
 ```bash
 cd app
@@ -167,14 +166,33 @@ npm install
 npx expo start
 ```
 
-O baja el APK ya compilado, lo instalas, y escribes la direccion y la clave.
+</details>
 
-**Listo.** Celular y PC en la misma red, y ya te podes sentar en el sillon.
+### El antivirus lo va a borrar
 
-> **El antivirus lo va a borrar.** Remoto manda teclas y clics a la computadora,
-> y eso se parece justo a un virus. Antes de instalar, agrega la carpeta a las
-> excepciones de Bitdefender o de Windows Defender. El paso a paso esta en
-> [COMO-INSTALAR.md](servidor/COMO-INSTALAR.md).
+Remoto manda teclas y clics a tu computadora, y eso se ve **exactamente igual
+que un virus**. No es un error del programa: es lo que hace.
+
+**Agregá la carpeta a las excepciones del antivirus antes de instalar**, o te
+va a borrar los archivos a los pocos segundos.
+
+| | Donde |
+|---|---|
+| **Bitdefender** | Protección → Amenazas → Excepciones → Agregar carpeta |
+| **Windows Defender** | Seguridad de Windows → Protección contra virus → Excluir → Agregar |
+
+### Si algo no anda
+
+| Que pasa | Que hacer |
+|---|---|
+| El antivirus borró los `.ps1` | Volvé a agregar la excepción y corré `montar.cmd` otra vez |
+| La app dice que no entra | Celular y PC en el **mismo WiFi** |
+| `montar.cmd` no encuentra `montar.ps1` | Descomprimí el ZIP **entero**, no solo algunos archivos |
+| Windows avisa que el archivo está bloqueado | Clic derecho en el ZIP → Propiedades → **Desbloquear** |
+| No sabés la clave | Abrí `clave.txt`, adentro de la carpeta |
+
+Lo mas importante: **el mismo WiFi**. Remoto no sale de tu red, y eso es a
+proposito.
 
 ---
 
